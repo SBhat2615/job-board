@@ -4,15 +4,18 @@ import io
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from app.config import RESUME_PATH
 from app.db import connect, dumps, loads
+from app.market import market_ok
+from app.match import annotate, evidence_sentences, experience_window, years_fit, years_span
 from app.parse import annual_ceiling, format_salary, normalize, phrase_key, utcnow
-from app.resume import dedupe_skills, detect_skills, overlapping_skills
+from app.resume import dedupe_skills, detect_skills
+from app.roles import job_matches_role
 from app.vocab import (
     CURRENCIES,
     DISCARD_REASONS,
@@ -58,6 +61,9 @@ class Filters:
     salary_currency: str = "USD"
     hide_unknown_salary: bool = False
     location: str = ""
+    market: str = ""
+    sort: str = ""
+    curated: bool = False
 
 
 def _profile_row(conn: sqlite3.Connection) -> sqlite3.Row:
@@ -79,6 +85,22 @@ def profile_payload(row: sqlite3.Row) -> dict:
         "hide_unknown_salary": bool(row["hide_unknown_salary"]),
         "has_resume": bool(row["resume_text"]),
         "resume_filename": row["resume_filename"],
+        "full_name": row["full_name"] or "",
+        "email": row["email"] or "",
+        "phone": row["phone"] or "",
+        "city": row["city"] or "",
+        "linkedin_url": row["linkedin_url"] or "",
+        "github_url": row["github_url"] or "",
+        "portfolio_url": row["portfolio_url"] or "",
+        "notice_period": row["notice_period"] or "",
+        "current_title": row["current_title"] or "",
+        "cover_note": row["cover_note"] or "",
+        "prefer_text": row["prefer_text"] or "",
+        "avoid_text": row["avoid_text"] or "",
+        "yoe_min": row["yoe_min"],
+        "yoe_max": row["yoe_max"],
+        "welcome_done": bool(row["welcome_done"]),
+        "ask_enabled": _ask_enabled(),
     }
 
 
@@ -102,6 +124,59 @@ def _clean_terms(values: list[str], limit: int) -> list[str]:
         if len(cleaned) >= limit:
             break
     return cleaned
+
+
+def _ask_enabled() -> bool:
+    import os
+
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+def _clip_text(value: object, limit: int, keep_lines: bool = False) -> str:
+    text = str(value or "")
+    if keep_lines:
+        lines = [" ".join(line.split()) for line in text.splitlines()]
+        text = "\n".join(line for line in lines if line).strip()
+    else:
+        text = " ".join(text.split())
+    return text[:limit]
+
+
+def _yoe_value(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Years of experience should be a whole number.") from exc
+    if number < 0 or number > 40:
+        raise ValueError("Years of experience should be between 0 and 40.")
+    return number
+
+
+def _phrases(text: str) -> list[str]:
+    return _clean_terms(re.split(r"[\n,]", text or ""), 30)
+
+
+def _applicant_fields(payload: dict) -> dict:
+    fields = {
+        "full_name": _clip_text(payload.get("full_name"), 120),
+        "email": _clip_text(payload.get("email"), 200),
+        "phone": _clip_text(payload.get("phone"), 40),
+        "city": _clip_text(payload.get("city"), 80),
+        "linkedin_url": _clip_text(payload.get("linkedin_url"), 300),
+        "github_url": _clip_text(payload.get("github_url"), 300),
+        "portfolio_url": _clip_text(payload.get("portfolio_url"), 300),
+        "notice_period": _clip_text(payload.get("notice_period"), 80),
+        "current_title": _clip_text(payload.get("current_title"), 120),
+        "cover_note": _clip_text(payload.get("cover_note"), 2000, keep_lines=True),
+    }
+    if fields["email"] and ("@" not in fields["email"] or " " in fields["email"]):
+        raise ValueError("Enter an email address, or leave it blank.")
+    for key in ("linkedin_url", "github_url", "portfolio_url"):
+        if fields[key] and not fields[key].startswith(("http://", "https://")):
+            raise ValueError("Profile links should start with https://.")
+    return fields
 
 
 def update_profile(payload: dict) -> dict:
@@ -128,15 +203,31 @@ def update_profile(payload: dict) -> dict:
     locations = _clean_terms(list(payload.get("locations") or []), 20)
     skills = dedupe_skills([str(item) for item in (payload.get("skills") or [])])
     hide = 1 if payload.get("hide_unknown_salary") else 0
+    applicant = _applicant_fields(payload)
+    yoe_min = _yoe_value(payload.get("yoe_min"))
+    yoe_max = _yoe_value(payload.get("yoe_max"))
+    if yoe_min is not None and yoe_max is not None and yoe_min > yoe_max:
+        raise ValueError("The lower years of experience cannot be above the upper years.")
+    prefer_text = _clip_text(payload.get("prefer_text"), 1000, keep_lines=True)
+    avoid_text = _clip_text(payload.get("avoid_text"), 1000, keep_lines=True)
     with connect() as conn:
         conn.execute(
             """
             UPDATE profile SET
                 roles_json = ?, locations_json = ?, work_mode = ?, seniority = ?,
-                salary_min = ?, salary_currency = ?, skills_json = ?, hide_unknown_salary = ?
+                salary_min = ?, salary_currency = ?, skills_json = ?, hide_unknown_salary = ?,
+                full_name = ?, email = ?, phone = ?, city = ?, linkedin_url = ?, github_url = ?,
+                portfolio_url = ?, notice_period = ?, current_title = ?, cover_note = ?,
+                prefer_text = ?, avoid_text = ?, yoe_min = ?, yoe_max = ?
             WHERE id = 1
             """,
-            (dumps(roles), dumps(locations), work_mode, seniority, salary, currency, dumps(skills), hide),
+            (
+                dumps(roles), dumps(locations), work_mode, seniority, salary, currency, dumps(skills), hide,
+                applicant["full_name"], applicant["email"], applicant["phone"], applicant["city"],
+                applicant["linkedin_url"], applicant["github_url"], applicant["portfolio_url"],
+                applicant["notice_period"], applicant["current_title"], applicant["cover_note"],
+                prefer_text, avoid_text, yoe_min, yoe_max,
+            ),
         )
         return profile_payload(_profile_row(conn))
 
@@ -466,6 +557,24 @@ def _posted_ok(posted_at: str | None, days: int) -> bool:
     return parsed >= datetime.now(timezone.utc) - timedelta(days=days)
 
 
+def finish_welcome() -> dict:
+    with connect() as conn:
+        conn.execute("UPDATE profile SET welcome_done = 1 WHERE id = 1")
+        return profile_payload(_profile_row(conn))
+
+
+_PLACE_ALIASES = {
+    "bangalore": ("bangalore", "bengaluru"),
+    "bengaluru": ("bangalore", "bengaluru"),
+    "mumbai": ("mumbai", "bombay"),
+    "bombay": ("mumbai", "bombay"),
+    "gurgaon": ("gurgaon", "gurugram"),
+    "gurugram": ("gurgaon", "gurugram"),
+    "delhi": ("delhi", "new delhi"),
+    "new delhi": ("delhi", "new delhi"),
+}
+
+
 def _location_ok(job: dict, location: str, preferred: list[str]) -> bool:
     if not location or location == "any":
         return True
@@ -478,7 +587,7 @@ def _location_ok(job: dict, location: str, preferred: list[str]) -> bool:
     aliases = {"on-site": "onsite", "on site": "onsite"}
     for item in wanted:
         word = item.casefold()
-        if word in loc:
+        if any(name in loc for name in _PLACE_ALIASES.get(word, (word,))):
             return True
         alias = aliases.get(word, word)
         if alias in {"remote", "hybrid", "onsite"} and mode == alias:
@@ -514,7 +623,13 @@ def _team_ok(team_size: int | None, bucket: str) -> bool:
     return team_size <= high
 
 
-def _matches(job: dict, filters: Filters, preferred_locations: list[str]) -> bool:
+def _matches(
+    job: dict,
+    filters: Filters,
+    preferred_locations: list[str],
+    tracked_roles: list[str] | None = None,
+    yoe_window: tuple[int, int] | None = None,
+) -> bool:
     if filters.q:
         blob = " ".join(
             [
@@ -526,10 +641,17 @@ def _matches(job: dict, filters: Filters, preferred_locations: list[str]) -> boo
         ).casefold()
         if filters.q.casefold() not in blob:
             return False
-    if filters.role:
-        blob = f"{job.get('title') or ''}\n{job.get('description_text') or ''}".casefold()
-        if filters.role.casefold() not in blob:
+    title = job.get("title") or ""
+    description = job.get("description_text") or ""
+    if filters.curated and filters.status == "feed" and not filters.q.strip():
+        if not tracked_roles:
             return False
+        if not filters.role and not any(job_matches_role(role, title, description) for role in tracked_roles):
+            return False
+        if not years_fit(years_span(description), yoe_window):
+            return False
+    if filters.role and not job_matches_role(filters.role, title, description):
+        return False
     if filters.source and filters.source not in (job.get("sources") or []):
         return False
     for field, column in (
@@ -548,13 +670,25 @@ def _matches(job: dict, filters: Filters, preferred_locations: list[str]) -> boo
             return False
     if not _location_ok(job, filters.location, preferred_locations):
         return False
+    if not market_ok(job.get("location") or "", job.get("work_mode") or "", filters.market):
+        return False
     if not _salary_ok(job, filters):
         return False
     return True
 
 
-def _public_job(job: dict, skills: list[str], has_resume: bool) -> dict:
-    text = f"{job.get('title') or ''}\n{job.get('description_text') or ''}"
+def _public_job(job: dict, profile: sqlite3.Row) -> dict:
+    skills = list(loads(profile["skills_json"], []))
+    reading = annotate(
+        job.get("description_text") or "",
+        job.get("location") or "",
+        skills,
+        bool(profile["resume_text"]),
+        _phrases(profile["prefer_text"] or ""),
+        _phrases(profile["avoid_text"] or ""),
+        profile["yoe_min"],
+        profile["yoe_max"],
+    )
     return {
         "id": job["id"],
         "company_id": job["company_id"],
@@ -577,7 +711,18 @@ def _public_job(job: dict, skills: list[str], has_resume: bool) -> dict:
         "discard_reason": job.get("discard_reason"),
         "discard_note": job.get("discard_note"),
         "applied_at": (job.get("applied_at") or "")[:10] or None,
-        "overlapping_skills": overlapping_skills(skills, text) if has_resume else [],
+        "overlapping_skills": reading["overlapping_skills"],
+        "missing_skills": reading["missing_skills"],
+        "flags": reading["flags"],
+        "excerpt": reading["excerpt"],
+        "prefer_hits": reading["prefer_hits"],
+        "avoid_hits": reading["avoid_hits"],
+        "years_required": reading["years_required"],
+        "years_low": reading["years_low"],
+        "years_high": reading["years_high"],
+        "match_score": reading["match_score"],
+        "contact_count": job.get("contact_count") or 0,
+        "followups_due": job.get("followups_due") or 0,
     }
 
 
@@ -596,6 +741,12 @@ def list_jobs(filters: Filters) -> dict:
     filters.work_auth = _blank_any(filters.work_auth)
     filters.posted_within = _blank_any(filters.posted_within)
     filters.location = "" if filters.location in {"", "any"} else filters.location.strip()[:80]
+    filters.market = "" if filters.market in {"", "any"} else filters.market
+    filters.sort = "" if filters.sort in {"", "new"} else filters.sort
+    if filters.market and filters.market not in {"india", "remote", "india-remote"}:
+        raise ValueError("Unknown market.")
+    if filters.sort and filters.sort != "match":
+        raise ValueError("Unknown sort.")
     if filters.status not in {"feed", "applied", "discarded"}:
         raise ValueError("Unknown tab.")
     if filters.source and filters.source not in SOURCES:
@@ -624,33 +775,86 @@ def list_jobs(filters: Filters) -> dict:
                    j.salary_min, j.salary_max, j.salary_currency, j.salary_interval,
                    j.work_mode, j.seniority, j.employment, j.work_auth, j.status,
                    j.discard_reason, j.discard_note, j.applied_at, j.description_text,
-                   c.name AS company, c.team_size, c.industry
+                   c.name AS company, c.team_size, c.industry,
+                   (SELECT COUNT(*) FROM contacts ct WHERE ct.job_id = j.id) AS contact_count,
+                   (SELECT COUNT(*) FROM messages ms
+                    WHERE ms.job_id = j.id AND ms.status = 'sent'
+                      AND ms.follow_up_on IS NOT NULL AND ms.follow_up_on <= ?) AS followups_due
             FROM jobs j
             JOIN companies c ON c.id = j.company_id
             WHERE j.status = ?
             {rule_sql}
             ORDER BY j.posted_at IS NULL, j.posted_at DESC, j.id DESC
             """,
-            (filters.status,),
+            (date.today().isoformat(), filters.status),
         ).fetchall()
         jobs = [dict(row) for row in rows]
         _attach_links(conn, jobs)
     preferred = list(loads(profile["locations_json"], []))
-    skills = list(loads(profile["skills_json"], []))
-    has_resume = bool(profile["resume_text"])
-    matched = [job for job in jobs if _matches(job, filters, preferred)]
-    sliced = matched[:500]
+    tracked = [str(item) for item in loads(profile["roles_json"], [])]
+    window = experience_window(profile["yoe_min"], profile["yoe_max"])
+    matched = [job for job in jobs if _matches(job, filters, preferred, tracked, window)]
+    if filters.sort == "match":
+        ranked = [_public_job(job, profile) for job in matched]
+        ranked.sort(key=lambda item: (item["match_score"], item.get("posted_at") or "", item["id"]))
+        ranked.reverse()
+        visible = ranked[:500]
+    else:
+        visible = [_public_job(job, profile) for job in matched[:500]]
     return {
         "total": len(jobs),
         "matched": len(matched),
         "truncated": len(matched) > 500,
         "counts": {key: counts[key] for key in ("feed", "applied", "discarded")},
         "hidden": counts["hidden"],
-        "jobs": [_public_job(job, skills, has_resume) for job in sliced],
+        "jobs": visible,
     }
 
 
+def add_watchlist(name: str) -> dict:
+    from app.config import INDIA_WATCHLIST, REMOTE_WATCHLIST
+    from app.db import load_sample_watchlist
+
+    path = {"india": INDIA_WATCHLIST, "remote": REMOTE_WATCHLIST}.get(name)
+    if path is None or not path.exists():
+        raise ValueError("Unknown company list.")
+    added: list[str] = []
+    skipped: list[str] = []
+    with connect() as conn:
+        for item in load_sample_watchlist(path.read_text(encoding="utf-8")):
+            company_name = " ".join(item["name"].split())
+            token = item["board_token"].strip()
+            board_type = item["board_type"]
+            if board_type not in {"greenhouse", "lever", "ashby"} or not _TOKEN.match(token):
+                skipped.append(company_name)
+                continue
+            existing = conn.execute(
+                "SELECT * FROM companies WHERE normalized_name = ?",
+                (normalize(company_name),),
+            ).fetchone()
+            if existing and existing["board_token"]:
+                skipped.append(company_name)
+                continue
+            now = utcnow()
+            if existing:
+                conn.execute(
+                    "UPDATE companies SET name = ?, board_type = ?, board_token = ? WHERE id = ?",
+                    (company_name, board_type, token, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO companies (name, normalized_name, board_type, board_token, is_sample, created_at)
+                    VALUES (?, ?, ?, ?, 0, ?)
+                    """,
+                    (company_name, normalize(company_name), board_type, token, now),
+                )
+            added.append(company_name)
+    return {"added": added, "skipped": skipped}
+
+
 def get_job(job_id: int) -> dict:
+    from app.contacts import contacts_for_job, ensure_job_contacts, messages_for_job
     from app.htmlutil import sanitize_html
 
     with connect() as conn:
@@ -667,10 +871,14 @@ def get_job(job_id: int) -> dict:
         if row is None:
             raise Missing("Job not found.")
         job = dict(row)
+        ensure_job_contacts(conn, job)
         _attach_links(conn, [job])
+        contact_rows = contacts_for_job(conn, job_id)
+        message_rows = messages_for_job(conn, job_id)
         profile = _profile_row(conn)
-    skills = list(loads(profile["skills_json"], []))
-    payload = _public_job(job, skills, bool(profile["resume_text"]))
+    payload = _public_job(job, profile)
+    from app.ask import list_answers
+
     payload.update(
         {
             "description_html": sanitize_html(job.get("description_html") or job.get("description_text") or ""),
@@ -679,6 +887,10 @@ def get_job(job_id: int) -> dict:
             "source_url": job.get("source_url") or "",
             "enriched_at": job.get("enriched_at"),
             "user_edited": bool(job.get("user_edited")),
+            "contacts": contact_rows,
+            "messages": message_rows,
+            "evidence": evidence_sentences(profile["resume_text"] or "", job.get("description_text") or ""),
+            "answers": list_answers(job_id),
         }
     )
     return payload

@@ -3,10 +3,20 @@ const state = {
   profile: null,
   companies: [],
   rules: [],
+  suggestions: [],
   status: "feed",
   defaultsApplied: false,
   discardId: null,
+  packet: null,
+  message: null,
+  welcomeResumeSkipped: false,
+  forceWelcome: null,
+  resumeReady: false,
 };
+
+const AUTOFILL_BOOKMARKLET = `javascript:(async()=>{try{const p=await (await fetch('http://127.0.0.1:8765/api/profile/autofill')).json();let n=0;const fire=el=>{el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};const set=(el,v)=>{if(!el||!v)return;el.focus();el.value=v;fire(el);n+=1;};const named=ns=>{for(const name of ns){const el=document.querySelector('[name="'+name+'"]');if(el)return el;}return null;};const labeled=words=>{for(const label of document.querySelectorAll('label')){const text=(label.innerText||'').toLowerCase();if(!words.every(word=>text.includes(word)))continue;const id=label.getAttribute('for');const el=id?document.getElementById(id):label.querySelector('input,textarea');if(el)return el;}return null;};set(named(['first_name','firstName'])||labeled(['first','name']),p.first_name);set(named(['last_name','lastName'])||labeled(['last','name']),p.last_name);set(named(['name','full_name'])||labeled(['full','name']),p.full_name);set(named(['email','email_address'])||labeled(['email']),p.email);set(named(['phone','phone_number'])||labeled(['phone']),p.phone);set(named(['location','city'])||labeled(['city'])||labeled(['location']),p.city);set(named(['urls[LinkedIn]','linkedin'])||labeled(['linkedin']),p.linkedin_url);set(named(['urls[GitHub]','github'])||labeled(['github']),p.github_url);set(named(['urls[Portfolio]','website'])||labeled(['portfolio'])||labeled(['website']),p.portfolio_url);set(named(['cover_letter'])||labeled(['cover']),p.cover_note);alert(n?('Filled '+n+' fields. Review them, then submit the form yourself.'):'No matching fields on this page. Copy them from the job board instead.');}catch(e){alert('Could not read the local job board. Keep it running at 127.0.0.1:8765.');}})();`;
+
+const SAVE_BOOKMARKLET = `javascript:(async()=>{try{const selected=(window.getSelection&&String(window.getSelection()))||'';const box=document.querySelector('.jobs-description__content,.jobs-box__html-content,.jobs-description');const description=(selected.trim().length>40?selected.trim():(box?box.innerText:'')).trim();const heading=document.querySelector('h1');const title=((heading&&heading.innerText)||document.title||'').trim();const companyEl=document.querySelector('.job-details-jobs-unified-top-card__company-name,.jobs-unified-top-card__company-name,a[href*="/company/"]');const company=(companyEl&&companyEl.innerText||'').trim();const locEl=document.querySelector('.job-details-jobs-unified-top-card__primary-description-container,.jobs-unified-top-card__bullet');const place=((locEl&&locEl.innerText)||'').split('·')[0].trim();if(!title||!company||description.length<40){alert('Could not read the title, company, and description. Paste them with Add posting on the job board.');return;}const res=await fetch('http://127.0.0.1:8765/api/import/posting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,company,location:place,url:window.location.href,description,source:'linkedin'})});const body=await res.json();if(!res.ok){alert(body.detail||'Could not save this posting.');return;}alert('Saved on your job board. Refresh 127.0.0.1:8765.');}catch(e){alert('This page blocked the save. Use Add posting on the job board and paste the description.');}})();`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -111,14 +121,7 @@ function fillRoleLocation() {
 }
 
 function applyDefaults() {
-  const profile = state.profile;
-  if (!profile || state.defaultsApplied) return;
-  $("work_mode").value = profile.work_mode && profile.work_mode !== "any" ? profile.work_mode : "";
-  $("seniority").value = profile.seniority && profile.seniority !== "any" ? profile.seniority : "";
-  $("salary_min").value = profile.salary_min ?? "";
-  $("salary_currency").value = profile.salary_currency || "USD";
-  $("hide_unknown_salary").checked = Boolean(profile.hide_unknown_salary);
-  if ((profile.locations || []).length) $("location").value = "__preferred__";
+  if (!state.profile || state.defaultsApplied) return;
   state.defaultsApplied = true;
   fillProfileForm();
 }
@@ -134,6 +137,20 @@ function fillProfileForm() {
   $("profile-currency").value = profile.salary_currency || "USD";
   $("profile-hide-salary").checked = Boolean(profile.hide_unknown_salary);
   $("profile-skills").value = (profile.skills || []).join(", ");
+  $("profile-name").value = profile.full_name || "";
+  $("profile-email").value = profile.email || "";
+  $("profile-phone").value = profile.phone || "";
+  $("profile-city").value = profile.city || "";
+  $("profile-title").value = profile.current_title || "";
+  $("profile-linkedin").value = profile.linkedin_url || "";
+  $("profile-github").value = profile.github_url || "";
+  $("profile-portfolio").value = profile.portfolio_url || "";
+  $("profile-notice").value = profile.notice_period || "";
+  $("profile-note").value = profile.cover_note || "";
+  $("profile-yoe-min").value = profile.yoe_min ?? "";
+  $("profile-yoe-max").value = profile.yoe_max ?? "";
+  $("profile-prefer").value = profile.prefer_text || "";
+  $("profile-avoid").value = profile.avoid_text || "";
   const status = $("resume-status");
   status.textContent = profile.has_resume
     ? `Using ${profile.resume_filename || "your resume"}. ${(profile.skills || []).length} skills will be highlighted when a job mentions them.`
@@ -143,12 +160,13 @@ function fillProfileForm() {
 function filtersQuery() {
   const params = new URLSearchParams();
   params.set("status", state.status);
-  const fields = ["q", "role", "source", "work_mode", "seniority", "employment", "team_size", "work_auth", "posted_within", "salary_min", "salary_currency", "location"];
+  const fields = ["q", "role", "source", "work_mode", "seniority", "employment", "team_size", "work_auth", "posted_within", "salary_min", "salary_currency", "location", "market", "sort"];
   for (const id of fields) {
     const value = $(id).value.trim();
     if (value) params.set(id, value);
   }
   if ($("hide_unknown_salary").checked) params.set("hide_unknown_salary", "1");
+  if (state.status === "feed" && !$("q").value.trim()) params.set("curated", "1");
   return params;
 }
 
@@ -175,9 +193,18 @@ function renderCard(job) {
   const employment = label("employment", job.employment);
   if (employment) tags.push(tag(employment, "slate"));
   if (job.industry) tags.push(tag(job.industry, "blue"));
+  if (job.contact_count) tags.push(tag(`${job.contact_count} contact${job.contact_count === 1 ? "" : "s"}`, "blue"));
+  if (job.followups_due) tags.push(tag("Follow-up due", "amber"));
+  for (const flag of job.flags || []) {
+    const tone = flag.kind === "open" ? "green" : (flag.kind === "years" || flag.kind === "years-low" ? "slate" : "amber");
+    tags.push(tag(flag.label, tone));
+  }
+  for (const phrase of job.prefer_hits || []) tags.push(tag(`Prefers: ${phrase}`, "green"));
+  for (const phrase of job.avoid_hits || []) tags.push(tag(`Poor fit: ${phrase}`, "amber"));
 
   const actions = [];
   actions.push(el("button", { type: "button", class: "btn", "data-action": "expand", "data-id": job.id }, "Description"));
+  actions.push(el("button", { type: "button", class: "btn", "data-action": "prepare", "data-id": job.id }, "Prepare application"));
   if (state.status !== "applied") {
     actions.push(el("button", { type: "button", class: "btn", "data-action": "applied", "data-id": job.id }, "Mark applied"));
   }
@@ -199,10 +226,21 @@ function renderCard(job) {
     el("h2", {}, job.title),
     el("p", { class: "meta" }, bits.join(" · ")),
     tags.length ? el("div", { class: "tags" }, tags) : null,
+    el("h3", { class: "card-label" }, "Expectations"),
+    el("p", { class: "excerpt" }, job.excerpt || "This posting does not split out a requirements section."),
+    el("h3", { class: "card-label" }, "What's missing"),
   ];
+  if ((job.missing_skills || []).length) {
+    const names = job.missing_skills.join(", ");
+    children.push(el("p", {}, `${names} ${job.missing_skills.length === 1 ? "is" : "are"} in this posting's requirements and not on your resume.`));
+  } else if (state.profile?.has_resume) {
+    children.push(el("p", {}, "The requirement skills read from this posting are already on your resume."));
+  } else {
+    children.push(el("p", {}, "Upload a resume to compare this posting with your skills."));
+  }
   if ((job.overlapping_skills || []).length) {
     children.push(el("div", { class: "skills" }, [
-      "Resume match",
+      "On your resume",
       ...job.overlapping_skills.map((skill) => el("span", { class: "skill" }, skill)),
     ]));
   }
@@ -223,15 +261,21 @@ function renderJobs(payload) {
   $("count").textContent = payload.truncated
     ? `${payload.jobs.length} of ${payload.matched} matching jobs`
     : `${payload.matched} of ${payload.total} jobs`;
-  $("count-feed").textContent = `(${payload.counts.feed})`;
+  $("count-feed").textContent = `(${state.status === "feed" ? payload.matched : payload.counts.feed})`;
   $("count-applied").textContent = `(${payload.counts.applied})`;
   $("count-discarded").textContent = `(${payload.counts.discarded})`;
   const host = $("jobs");
   host.replaceChildren();
   if (!payload.jobs.length) {
     let message = "Nothing matches these filters.";
-    if (state.status === "feed" && payload.total === 0 && payload.hidden > 0) {
+    if (state.status === "feed" && !$("q").value.trim() && !(state.profile?.roles || []).length) {
+      message = "Choose the roles you want. The feed shows those roles, not every collected job.";
+    } else if (state.status === "feed" && !$("q").value.trim() && (state.profile?.roles || []).length) {
+      message = "No collected job matches these roles inside your years window. Search to look through every job, or edit the roles.";
+    } else if (state.status === "feed" && payload.total === 0 && payload.hidden > 0) {
       message = "Hide rules are keeping every remaining feed job out of view. Restore a company from Discarded, or delete a rule in Settings.";
+    } else if (state.status === "feed" && payload.total > 0 && $("market").value !== "any") {
+      message = "Nothing in this market matches. Anywhere shows every saved job. Add Indian boards in Settings, then fetch.";
     } else if (state.status === "feed" && payload.total === 0) {
       const names = state.companies.map((company) => company.name).join(", ");
       message = names
@@ -255,6 +299,7 @@ async function loadJobs() {
   const payload = await api(`/api/jobs?${filtersQuery()}`);
   if (token !== loadToken) return;
   renderJobs(payload);
+  renderSearchSummary();
 }
 
 function renderCompanies() {
@@ -296,10 +341,17 @@ function renderRules() {
 }
 
 async function refreshSideData() {
-  state.companies = await api("/api/companies");
-  state.rules = await api("/api/rules");
+  const [companies, rules, suggestions] = await Promise.all([
+    api("/api/companies"),
+    api("/api/rules"),
+    api("/api/suggestions"),
+  ]);
+  state.companies = companies;
+  state.rules = rules;
+  state.suggestions = suggestions || [];
   renderCompanies();
   renderRules();
+  renderSuggestions();
 }
 
 function signalList(signals) {
@@ -310,6 +362,108 @@ function signalList(signals) {
     if (signal.url) item.append(" ", el("a", { href: signal.url, target: "_blank", rel: "noopener noreferrer" }, "Source"));
     return item;
   }));
+}
+
+function kindLabel(kind) {
+  return { referral: "Referral", follow_up: "Follow-up", cover: "Cover note", answers: "Form answers" }[kind] || "Note";
+}
+
+function checkedEvidence(root) {
+  return [...root.querySelectorAll('input[name="evidence"]:checked')].map((box) => box.value);
+}
+
+function matchBlock(job) {
+  const children = [el("h3", {}, "Application draft")];
+  if (!(job.evidence || []).length) {
+    children.push(el("p", { class: "hint" }, state.profile?.has_resume
+      ? "No resume line shares a skill with the requirements section. You can still ask about the posting if a model key is set."
+      : "Upload a resume to draft from your own lines."));
+  } else {
+    children.push(el("p", { class: "hint" }, "These lines are quoted from your resume because they share a skill with the requirements. Uncheck any line that does not belong in the note."));
+    const boxes = job.evidence.map((sentence) => el("label", { class: "check" }, [
+      el("input", { type: "checkbox", name: "evidence", value: sentence, checked: "checked" }),
+      sentence,
+    ]));
+    children.push(el("div", { class: "stack", "data-evidence": job.id }, boxes));
+    children.push(el("button", {
+      type: "button",
+      class: "btn",
+      "data-action": "draft-application",
+      "data-job": job.id,
+    }, "Draft from checked lines"));
+  }
+  if (state.profile?.ask_enabled) {
+    children.push(el("form", { class: "stack", "data-action": "ask-job", "data-job": job.id }, [
+      el("label", { class: "field" }, ["Ask about this job", el("textarea", { name: "question", rows: "2", placeholder: "Should I apply if I will not relocate?" })]),
+      el("button", { type: "submit", class: "btn" }, "Ask"),
+    ]));
+  }
+  for (const answer of job.answers || []) {
+    children.push(el("div", { class: "record" }, [
+      el("div", {}, [
+        el("strong", {}, answer.question),
+        el("p", {}, answer.answer),
+      ]),
+    ]));
+  }
+  return el("div", {}, children);
+}
+
+function referralBlock(job) {
+  const contacts = job.contacts || [];
+  const messages = job.messages || [];
+  const children = [
+    el("h3", {}, "Referral"),
+    el("p", { class: "hint" }, contacts.length
+      ? "Draft a note from a contact on the posting, edit it, then open it in your mail app."
+      : "No email or LinkedIn profile was published on this posting. Add someone if you want to ask for a referral first."),
+  ];
+  for (const contact of contacts) children.push(contactRow(contact));
+  children.push(el("form", { class: "stack", "data-action": "add-contact", "data-job": job.id }, [
+    el("div", { class: "split" }, [
+      el("label", { class: "field" }, ["Name", el("input", { name: "name", placeholder: "Ada Lovelace" })]),
+      el("label", { class: "field" }, ["Email", el("input", { name: "email", placeholder: "ada@company.com" })]),
+    ]),
+    el("label", { class: "field" }, ["Profile link", el("input", { name: "link", placeholder: "https://" })]),
+    el("button", { type: "submit", class: "btn" }, "Add contact"),
+  ]));
+  if (messages.length) {
+    children.push(el("h3", {}, "Messages"));
+    for (const message of messages) children.push(messageRow(message));
+  }
+  return el("div", {}, children);
+}
+
+function contactRow(contact) {
+  const meta = [contact.role, contact.email].filter(Boolean).join(" · ");
+  return el("div", { class: "record" }, [
+    el("div", {}, [
+      el("strong", {}, contact.name || contact.email || "Contact"),
+      meta ? el("p", {}, meta) : null,
+      contact.link ? el("a", { class: "link", href: contact.link, target: "_blank", rel: "noopener noreferrer" }, "Profile") : null,
+    ]),
+    el("div", { class: "row" }, [
+      el("button", {
+        type: "button",
+        class: "btn",
+        "data-action": "draft-referral",
+        "data-job": contact.job_id,
+        "data-contact": contact.id,
+      }, "Draft referral"),
+      el("button", { type: "button", class: "btn", "data-action": "delete-contact", "data-id": contact.id, "data-job": contact.job_id }, "Remove"),
+    ]),
+  ]);
+}
+
+function messageRow(message) {
+  const when = message.follow_up_on ? `Follow up ${message.follow_up_on}` : message.status;
+  return el("div", { class: "record" }, [
+    el("div", {}, [
+      el("strong", {}, message.subject),
+      el("p", {}, `${kindLabel(message.kind)} · ${message.status} · ${when}`),
+    ]),
+    el("button", { type: "button", class: "btn", "data-action": "edit-message", "data-message": message.id }, "Open"),
+  ]);
 }
 
 async function toggleDetail(card) {
@@ -343,7 +497,8 @@ async function toggleDetail(card) {
       ]),
     ]);
     facts.dataset.companyId = job.company_id;
-    panel.append(description, facts);
+    rememberMessages(job.messages || []);
+    panel.append(description, matchBlock(job), referralBlock(job), facts);
     panel.dataset.loaded = "1";
   }
   panel.hidden = false;
@@ -380,26 +535,86 @@ document.addEventListener("click", async (event) => {
   try {
     if (action === "expand") {
       await toggleDetail(target.closest(".card"));
+    } else if (action === "prepare") {
+      await openApply(id);
+    } else if (action === "copy-field") {
+      await copyText(state.packet.fields[Number(target.dataset.index)].value || "");
+      showBanner("Copied.");
+    } else if (action === "draft-application") {
+      const saved = await api(`/api/jobs/${target.dataset.job}/drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evidence: checkedEvidence(target.closest(".detail")) }),
+      });
+      rememberMessages([saved.cover, saved.answers]);
+      openMessage(saved.cover);
+      await refreshOutreachCount();
+      await loadCurrent();
+    } else if (action === "draft-referral") {
+      const message = await api(`/api/jobs/${target.dataset.job}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "referral", contact_id: Number(target.dataset.contact) }),
+      });
+      rememberMessages([message]);
+      openMessage(message);
+      await refreshOutreachCount();
+      await loadCurrent();
+    } else if (action === "draft-followup") {
+      const message = await api(`/api/jobs/${target.dataset.job}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "follow_up",
+          parent_id: Number(target.dataset.message),
+          contact_id: target.dataset.contact ? Number(target.dataset.contact) : null,
+        }),
+      });
+      rememberMessages([message]);
+      openMessage(message);
+      await refreshOutreachCount();
+      await loadCurrent();
+    } else if (action === "edit-message") {
+      const message = (state.messages || {})[target.dataset.message];
+      if (message) openMessage(message);
+    } else if (action === "delete-contact") {
+      await api(`/api/contacts/${id}`, { method: "DELETE" });
+      showBanner("Contact removed.");
+      await loadCurrent();
     } else if (action === "applied") {
       await api(`/api/jobs/${id}/applied`, { method: "POST" });
-      await loadJobs();
+      await loadCurrent();
     } else if (action === "discard") {
       openDiscard(id);
     } else if (action === "restore") {
       await api(`/api/jobs/${id}/restore`, { method: "POST" });
       await refreshSideData();
-      await loadJobs();
+      await loadCurrent();
+    } else if (action === "add-suggestion") {
+      await api("/api/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: target.dataset.name,
+          board_type: target.dataset.type,
+          board_token: target.dataset.token,
+        }),
+      });
+      state.suggestions = (state.suggestions || []).filter((item) => !(item.board_type === target.dataset.type && item.board_token === target.dataset.token));
+      renderSuggestions();
+      await refreshSideData();
+      showBanner("Board added. Fetch to pull its jobs.");
     } else if (action === "delete-company") {
       const company = state.companies.find((item) => String(item.id) === id);
       const name = company ? company.name : "this company";
       if (!confirm(`Delete ${name} and its jobs?`)) return;
       await api(`/api/companies/${id}`, { method: "DELETE" });
       await refreshSideData();
-      await loadJobs();
+      await loadCurrent();
     } else if (action === "delete-rule") {
       await api(`/api/rules/${id}`, { method: "DELETE" });
       await refreshSideData();
-      await loadJobs();
+      await loadCurrent();
     } else if (action === "enrich") {
       target.disabled = true;
       await api(`/api/companies/${id}/enrich`, { method: "POST" });
@@ -409,7 +624,7 @@ document.addEventListener("click", async (event) => {
       panel.replaceChildren();
       panel.hidden = true;
       await toggleDetail(card);
-      await loadJobs();
+      await loadCurrent();
     }
   } catch (error) {
     showBanner(error.message, true);
@@ -419,6 +634,49 @@ document.addEventListener("click", async (event) => {
 });
 
 $("jobs").addEventListener("submit", async (event) => {
+  const askForm = event.target.closest("[data-action='ask-job']");
+  if (askForm) {
+    event.preventDefault();
+    try {
+      await api(`/api/jobs/${askForm.dataset.job}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: askForm.question.value,
+          evidence: checkedEvidence(askForm.closest(".detail")),
+        }),
+      });
+      showBanner("Answer saved on this job.");
+      const panel = askForm.closest(".detail");
+      panel.dataset.loaded = "";
+      panel.replaceChildren();
+      panel.hidden = true;
+      await toggleDetail(askForm.closest(".card"));
+    } catch (error) {
+      showBanner(error.message, true);
+    }
+    return;
+  }
+  const contactForm = event.target.closest("[data-action='add-contact']");
+  if (contactForm) {
+    event.preventDefault();
+    try {
+      await api(`/api/jobs/${contactForm.dataset.job}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: contactForm.name.value,
+          email: contactForm.email.value,
+          link: contactForm.link.value,
+        }),
+      });
+      showBanner("Contact added.");
+      await loadCurrent();
+    } catch (error) {
+      showBanner(error.message, true);
+    }
+    return;
+  }
   const form = event.target.closest("[data-action='facts']");
   if (!form) return;
   event.preventDefault();
@@ -434,7 +692,7 @@ $("jobs").addEventListener("submit", async (event) => {
       }),
     });
     showBanner("Saved company facts.");
-    await loadJobs();
+    await loadCurrent();
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -460,7 +718,7 @@ $("discard-form").addEventListener("submit", async (event) => {
     });
     closeDiscard();
     await refreshSideData();
-    await loadJobs();
+    await loadCurrent();
   } catch (error) {
     $("discard-error").hidden = false;
     $("discard-error").textContent = error.message;
@@ -472,7 +730,11 @@ $("modal").addEventListener("click", (event) => {
   if (event.target === $("modal")) closeDiscard();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !$("modal").hidden) closeDiscard();
+  if (event.key !== "Escape") return;
+  if (!$("modal").hidden) closeDiscard();
+  if (!$("apply-modal").hidden) closeApply();
+  if (!$("message-modal").hidden) closeMessage();
+  if (!$("posting-modal").hidden) closePosting();
 });
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -480,7 +742,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     state.status = tab.dataset.status;
     document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item === tab));
     try {
-      await loadJobs();
+      await loadCurrent();
     } catch (error) {
       showBanner(error.message, true);
     }
@@ -491,16 +753,16 @@ let searchTimer = 0;
 $("filters").addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    loadJobs().catch((error) => showBanner(error.message, true));
+    loadCurrent().catch((error) => showBanner(error.message, true));
   }, 200);
 });
 $("filters").addEventListener("change", () => {
-  loadJobs().catch((error) => showBanner(error.message, true));
+  loadCurrent().catch((error) => showBanner(error.message, true));
 });
 $("reset-filters").addEventListener("click", () => {
   $("filters").reset();
   $("salary_currency").value = state.profile?.salary_currency || "USD";
-  loadJobs().catch((error) => showBanner(error.message, true));
+  loadCurrent().catch((error) => showBanner(error.message, true));
 });
 
 $("settings-toggle").addEventListener("click", () => {
@@ -511,7 +773,7 @@ $("fetch").addEventListener("click", async () => {
   const button = $("fetch");
   button.disabled = true;
   button.textContent = "Fetching…";
-  showBanner("Fetching public boards and company facts. This can take a minute.");
+  showBanner("Fetching company boards and remote feeds. A first pull can take a few minutes.");
   try {
     const result = await api("/api/fetch", { method: "POST" });
     const parts = [`Added ${result.added}`, `updated ${result.updated}`];
@@ -522,7 +784,7 @@ $("fetch").addEventListener("click", async () => {
     }
     showBanner(parts.join(". ") + ".");
     await refreshSideData();
-    await loadJobs();
+    await loadCurrent();
   } catch (error) {
     showBanner(error.message, true);
   } finally {
@@ -547,10 +809,25 @@ $("profile-form").addEventListener("submit", async (event) => {
         salary_currency: $("profile-currency").value,
         skills: splitList($("profile-skills").value),
         hide_unknown_salary: $("profile-hide-salary").checked,
+        full_name: $("profile-name").value,
+        email: $("profile-email").value,
+        phone: $("profile-phone").value,
+        city: $("profile-city").value,
+        current_title: $("profile-title").value,
+        linkedin_url: $("profile-linkedin").value,
+        github_url: $("profile-github").value,
+        portfolio_url: $("profile-portfolio").value,
+        notice_period: $("profile-notice").value,
+        cover_note: $("profile-note").value,
+        prefer_text: $("profile-prefer").value,
+        avoid_text: $("profile-avoid").value,
+        yoe_min: numberOrNull($("profile-yoe-min").value),
+        yoe_max: numberOrNull($("profile-yoe-max").value),
       }),
     });
     fillRoleLocation();
     fillProfileForm();
+    await loadRoleReview();
     showBanner("Saved profile.");
   } catch (error) {
     showBanner(error.message, true);
@@ -569,8 +846,11 @@ $("resume-form").addEventListener("submit", async (event) => {
   try {
     state.profile = await api("/api/profile/resume", { method: "POST", body });
     fillProfileForm();
-    showBanner("Resume uploaded.");
-    await loadJobs();
+    state.resumeReady = true;
+    state.forceWelcome = "roles";
+    await loadRoleReview();
+    showWelcome();
+    showBanner("Resume replaced. Choose the roles to look for.");
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -596,6 +876,109 @@ $("company-form").addEventListener("submit", async (event) => {
   }
 });
 
+$("add-india").addEventListener("click", () => addWatch("india"));
+$("add-remote").addEventListener("click", () => addWatch("remote"));
+
+async function addWatch(name) {
+  try {
+    const result = await api(`/api/watchlists/${name}`, { method: "POST" });
+    await refreshSideData();
+    const added = result.added || [];
+    showBanner(added.length ? `Added ${added.join(", ")}. Fetch to pull their jobs.` : "Those boards are already on the list.");
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+}
+
+$("apply-close").addEventListener("click", closeApply);
+$("apply-modal").addEventListener("click", (event) => {
+  if (event.target === $("apply-modal")) closeApply();
+});
+$("apply-copy-all").addEventListener("click", async () => {
+  const lines = (state.packet?.fields || []).map((field) => `${field.label}: ${field.value || ""}`);
+  await copyText(lines.join("\n"));
+  showBanner("Copied the application packet.");
+});
+$("apply-bookmarklet").addEventListener("click", async () => {
+  await copyText(AUTOFILL_BOOKMARKLET);
+  showBanner("Bookmarklet copied. Create a bookmark and paste this as its address, then click it on a portal form.");
+});
+$("apply-mark").addEventListener("click", async () => {
+  try {
+    await api(`/api/jobs/${state.packet.job_id}/applied`, { method: "POST" });
+    closeApply();
+    await loadCurrent();
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+
+$("message-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("message-error").hidden = true;
+  try {
+    await saveMessage("draft");
+    showBanner("Draft saved.");
+  } catch (error) {
+    $("message-error").hidden = false;
+    $("message-error").textContent = error.message;
+  }
+});
+$("message-sent").addEventListener("click", async () => {
+  try {
+    const saved = await saveMessage("sent");
+    const application = saved.kind === "cover" || saved.kind === "answers";
+    showBanner(application ? "Marked used. Nothing was sent." : (saved.follow_up_on ? `Marked sent. Follow up on ${saved.follow_up_on}.` : "Marked sent."));
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+$("message-replied").addEventListener("click", async () => {
+  try {
+    await saveMessage("replied");
+    showBanner("Marked replied.");
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+$("message-mail").addEventListener("click", async () => {
+  try {
+    const saved = await saveMessage(state.message.status === "sent" ? "sent" : "draft");
+    const email = saved.contact_email || "";
+    const href = `mailto:${email}?subject=${encodeURIComponent(saved.subject)}&body=${encodeURIComponent(saved.body)}`;
+    if (href.length > 1800) {
+      await copyText(`${saved.subject}\n\n${saved.body}`);
+      showBanner("This note is too long for a mailto link. The subject and body are copied; paste them into your mail app.", true);
+      return;
+    }
+    window.location.href = href;
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+$("message-followup").addEventListener("click", async () => {
+  if (!state.message) return;
+  try {
+    const message = await api(`/api/jobs/${state.message.job_id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "follow_up",
+        parent_id: state.message.id,
+        contact_id: state.message.contact_id,
+      }),
+    });
+    openMessage(message);
+    if (state.status === "outreach") await loadOutreach();
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+$("message-close").addEventListener("click", closeMessage);
+$("message-modal").addEventListener("click", (event) => {
+  if (event.target === $("message-modal")) closeMessage();
+});
+
 $("import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const file = $("import-file").files[0];
@@ -611,11 +994,168 @@ $("import-form").addEventListener("submit", async (event) => {
     $("import-form").reset();
     await refreshSideData();
     setSettings(false);
-    await loadJobs();
+    await loadCurrent();
   } catch (error) {
     showBanner(error.message, true);
   }
 });
+
+function rememberMessages(messages) {
+  state.messages = state.messages || {};
+  for (const message of messages) state.messages[message.id] = message;
+}
+
+async function copyText(text) {
+  if (!text) {
+    showBanner("Nothing to copy.", true);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+}
+
+function closeApply() {
+  $("apply-modal").hidden = true;
+}
+
+async function openApply(jobId) {
+  const packet = await api(`/api/jobs/${jobId}/packet`);
+  state.packet = packet;
+  $("apply-title").textContent = `${packet.title} · ${packet.company}`;
+  $("apply-hint").textContent = packet.ready
+    ? "Copy a field, or use the bookmarklet on the portal page. Submit that form yourself."
+    : "Add your name and email under Settings → Application. Submit the portal form yourself.";
+  const host = $("packet-fields");
+  host.replaceChildren();
+  packet.fields.forEach((field, index) => {
+    host.append(el("div", { class: "packet-row" }, [
+      el("div", {}, [el("span", {}, field.label), el("strong", {}, field.value || "—")]),
+      el("button", { type: "button", class: "btn", "data-action": "copy-field", "data-index": index }, "Copy"),
+    ]));
+  });
+  const url = packet.apply_url || (packet.links[0] && packet.links[0].apply_url) || "";
+  $("apply-open").hidden = !url;
+  $("apply-open").href = url || "#";
+  $("apply-modal").hidden = false;
+}
+
+function closeMessage() {
+  $("message-modal").hidden = true;
+}
+
+function openMessage(message) {
+  state.message = message;
+  rememberMessages([message]);
+  const who = message.contact_name || message.contact_email || "";
+  const titles = {
+    follow_up: "Follow-up draft",
+    cover: "Cover note",
+    answers: "Form answers",
+  };
+  const application = message.kind === "cover" || message.kind === "answers";
+  $("message-title").textContent = titles[message.kind] || "Referral draft";
+  $("message-meta").textContent = [message.company, message.job_title, who].filter(Boolean).join(" · ");
+  $("message-subject").value = message.subject || "";
+  $("message-body").value = message.body || "";
+  $("message-follow").value = message.follow_up_on || "";
+  $("message-follow").closest("label").hidden = application;
+  $("message-followup").hidden = application;
+  $("message-sent").textContent = application ? "Mark used" : "Mark sent";
+  $("message-hint").textContent = application
+    ? "This stays a draft until you mark it used. Nothing is emailed or submitted."
+    : "Opening mail does not mark it sent. Mark sent after it leaves your inbox. A referral then comes due again in five days unless you pick another date.";
+  $("message-error").hidden = true;
+  $("message-modal").hidden = false;
+  $("message-subject").focus();
+}
+
+async function saveMessage(status) {
+  const saved = await api(`/api/messages/${state.message.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      subject: $("message-subject").value,
+      body: $("message-body").value,
+      status,
+      follow_up_on: $("message-follow").value,
+    }),
+  });
+  openMessage(saved);
+  await refreshOutreachCount();
+  if (state.status === "outreach") await loadOutreach();
+  return saved;
+}
+
+function renderMessageList(title, messages) {
+  const block = el("section", {}, [el("h2", { class: "group-label" }, title)]);
+  if (!messages.length) {
+    block.append(el("p", { class: "hint" }, "None."));
+    return block;
+  }
+  for (const message of messages) {
+    const who = message.contact_name || message.contact_email || kindLabel(message.kind);
+    const buttons = [
+      el("button", { type: "button", class: "btn", "data-action": "edit-message", "data-message": message.id }, "Open"),
+    ];
+    if (message.status === "sent" && (message.kind === "referral" || message.kind === "follow_up")) {
+      buttons.push(el("button", {
+        type: "button",
+        class: "btn",
+        "data-action": "draft-followup",
+        "data-job": message.job_id,
+        "data-message": message.id,
+        "data-contact": message.contact_id || "",
+      }, "Write follow-up"));
+    }
+    block.append(el("div", { class: "record" }, [
+      el("div", {}, [
+        el("strong", {}, message.subject),
+        el("p", {}, `${message.company} · ${message.job_title} · ${who} · ${message.follow_up_on || message.status}`),
+      ]),
+      el("div", { class: "row" }, buttons),
+    ]));
+  }
+  return block;
+}
+
+async function refreshOutreachCount() {
+  const payload = await api("/api/outreach");
+  state.outreach = payload;
+  rememberMessages([...(payload.due || []), ...(payload.drafts || []), ...(payload.sent || []), ...(payload.closed || [])]);
+  const openCount = payload.counts.due || payload.counts.drafts + payload.counts.sent;
+  $("count-outreach").textContent = `(${openCount})`;
+  return payload;
+}
+
+async function loadOutreach() {
+  const payload = await refreshOutreachCount();
+  const due = payload.counts.due;
+  $("count").textContent = due ? `${due} follow-up${due === 1 ? "" : "s"} due` : `${payload.counts.drafts} drafts · ${payload.counts.sent} sent`;
+  const host = $("jobs");
+  host.replaceChildren(
+    el("p", { class: "hint" }, "Drafts stay here until you open them in mail and mark them sent. Marking a referral sent schedules a follow-up."),
+    renderMessageList("Due", payload.due),
+    renderMessageList("Drafts", payload.drafts),
+    renderMessageList("Sent", payload.sent),
+    renderMessageList("Replied or closed", payload.closed),
+  );
+}
+
+async function loadCurrent() {
+  if (state.status === "outreach") {
+    await loadOutreach();
+    return;
+  }
+  await loadJobs();
+}
 
 async function init() {
   try {
@@ -624,11 +1164,356 @@ async function init() {
     state.profile = await api("/api/profile");
     fillRoleLocation();
     applyDefaults();
+    await loadRoleReview();
+    showWelcome();
     await refreshSideData();
-    await loadJobs();
+    await loadCurrent();
+    await refreshOutreachCount();
   } catch (error) {
     showBanner(error.message, true);
   }
 }
+
+function numberOrNull(value) {
+  const text = String(value ?? "").trim();
+  return text === "" ? null : Number(text);
+}
+
+function showWelcome() {
+  const profile = state.profile;
+  const force = state.forceWelcome;
+  if (!force && (!profile || profile.welcome_done)) {
+    $("welcome").hidden = true;
+    renderSearchSummary();
+    return;
+  }
+  $("welcome").hidden = false;
+  const resumeStep = force === "resume" || (!profile?.welcome_done && !state.resumeReady && force !== "roles");
+  $("welcome-resume").hidden = !resumeStep;
+  $("welcome-roles").hidden = resumeStep;
+  if (profile?.has_resume) {
+    $("welcome-current").textContent = `Current file: ${profile.resume_filename || "your resume"}. Upload a new PDF to replace it, or read this one.`;
+    $("welcome-read").hidden = false;
+  } else {
+    $("welcome-current").textContent = "No resume on file yet.";
+    $("welcome-read").hidden = true;
+  }
+  if (resumeStep) return;
+  const skills = (profile?.skills || []).slice(0, 12);
+  $("welcome-skills").textContent = profile?.has_resume
+    ? `Read from ${profile.resume_filename || "your resume"}${skills.length ? `. Skills found: ${skills.join(", ")}.` : "."}`
+    : "No resume yet. Add the roles you want to look for.";
+  $("welcome-yoe-min").value = profile?.yoe_min ?? "";
+  $("welcome-yoe-max").value = profile?.yoe_max ?? "";
+  renderWelcomeRoles();
+  updateWelcomeWindow();
+}
+
+function roleCheck(role, checked, caption) {
+  const box = el("input", { type: "checkbox", value: role });
+  box.checked = checked;
+  return el("label", { class: "check" }, [box, caption || role]);
+}
+
+function renderWelcomeRoles() {
+  const host = $("welcome-role-choices");
+  const latest = state.roleReview?.latest || "";
+  const recs = state.roleReview?.recommendations || [];
+  const saved = new Set((state.profile?.roles || []).map((role) => role.toLowerCase()));
+  host.replaceChildren();
+  if (!latest && !recs.length) {
+    host.append(el("p", { class: "hint" }, "No role was found in the resume. Add the ones you want below."));
+    return;
+  }
+  if (latest) {
+    host.append(el("p", { class: "hint" }, "Latest role from the resume"));
+    const checked = saved.size ? saved.has(latest.toLowerCase()) : true;
+    host.append(roleCheck(latest, checked));
+  }
+  const extra = recs.filter((role) => role.toLowerCase() !== latest.toLowerCase());
+  if (extra.length) {
+    host.append(el("p", { class: "hint" }, "Similar roles"));
+    for (const role of extra) host.append(roleCheck(role, saved.has(role.toLowerCase())));
+  }
+}
+
+function updateWelcomeWindow() {
+  const min = numberOrNull($("welcome-yoe-min").value);
+  const max = numberOrNull($("welcome-yoe-max").value);
+  const note = $("welcome-window");
+  if (min == null && max == null) {
+    note.textContent = "Add years of experience to filter. The search keeps one year below and one year above, and a posting whose range still overlaps that band.";
+    return;
+  }
+  const low = Math.max(0, (min ?? max) - 1);
+  const high = (max ?? min) + 1;
+  note.textContent = `Jobs that ask for ${low}–${high} years are shown. A posting that says 3–7 years stays when that range overlaps. A posting with no years stated stays in the list.`;
+}
+
+function selectedWelcomeRoles() {
+  const chosen = [...$("welcome-role-choices").querySelectorAll("input:checked")].map((box) => box.value);
+  const extra = splitList($("welcome-role-extra").value);
+  const roles = [];
+  const seen = new Set();
+  for (const role of [...chosen, ...extra]) {
+    const key = role.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    roles.push(role);
+  }
+  return roles;
+}
+
+function welcomeProfile(overrides) {
+  const profile = state.profile || {};
+  return {
+    roles: profile.roles || [],
+    locations: profile.locations || [],
+    work_mode: profile.work_mode || "any",
+    seniority: profile.seniority || "any",
+    salary_min: profile.salary_min ?? null,
+    salary_currency: profile.salary_currency || "USD",
+    skills: profile.skills || [],
+    hide_unknown_salary: Boolean(profile.hide_unknown_salary),
+    full_name: profile.full_name || "",
+    email: profile.email || "",
+    phone: profile.phone || "",
+    city: profile.city || "",
+    current_title: profile.current_title || "",
+    linkedin_url: profile.linkedin_url || "",
+    github_url: profile.github_url || "",
+    portfolio_url: profile.portfolio_url || "",
+    notice_period: profile.notice_period || "",
+    cover_note: profile.cover_note || "",
+    prefer_text: profile.prefer_text || "",
+    avoid_text: profile.avoid_text || "",
+    yoe_min: profile.yoe_min ?? null,
+    yoe_max: profile.yoe_max ?? null,
+    ...overrides,
+  };
+}
+
+async function completeWelcome(profile) {
+  state.profile = profile;
+  state.defaultsApplied = false;
+  fillRoleLocation();
+  applyDefaults();
+  fillProfileForm();
+  state.forceWelcome = null;
+  state.resumeReady = false;
+  showWelcome();
+  await loadRoleReview();
+  await loadCurrent();
+}
+
+async function loadRoleReview() {
+  try {
+    state.roleReview = await api("/api/profile/roles");
+  } catch (error) {
+    state.roleReview = { latest: "", recommendations: [], roles: [], window: null };
+    showBanner(error.message, true);
+  }
+  renderSearchSummary();
+}
+
+function renderSearchSummary() {
+  const text = $("search-summary-text");
+  if (!text) return;
+  if ($("q").value.trim()) {
+    text.textContent = "Search is looking through every collected job.";
+    return;
+  }
+  const roles = state.profile?.roles || [];
+  if (!roles.length) {
+    text.textContent = "Upload a resume and choose roles. The feed shows those roles, not every collected job.";
+    return;
+  }
+  const min = state.profile?.yoe_min;
+  const max = state.profile?.yoe_max;
+  const years = min != null || max != null ? `${min ?? max}–${max ?? min} years` : "any years";
+  const window = state.roleReview?.window;
+  const band = window
+    ? ` Jobs asking for ${window[0]}–${window[1]} years are included, including a wider range that overlaps.`
+    : "";
+  text.textContent = `Showing ${roles.join(", ")} · ${years}.${band}`;
+}
+
+async function saveRoles(roles) {
+  state.profile = await api("/api/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(welcomeProfile({ roles })),
+  });
+  fillRoleLocation();
+  fillProfileForm();
+  await loadRoleReview();
+}
+
+function closePosting() {
+  $("posting-modal").hidden = true;
+}
+
+function renderSuggestions() {
+  const host = $("suggestion-list");
+  host.replaceChildren();
+  for (const item of state.suggestions || []) {
+    host.append(el("div", { class: "record" }, [
+      el("div", {}, [
+        el("strong", {}, item.name),
+        el("p", {}, `${label("source", item.board_type) || item.board_type} · ${item.sample_location} · ${item.reason}`),
+      ]),
+      el("button", {
+        type: "button",
+        class: "btn",
+        "data-action": "add-suggestion",
+        "data-name": item.name,
+        "data-type": item.board_type,
+        "data-token": item.board_token,
+      }, "Add"),
+    ]));
+  }
+}
+
+$("welcome-resume-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = $("welcome-resume-file").files[0];
+  if (!file) {
+    showBanner("Choose a PDF first.", true);
+    return;
+  }
+  const body = new FormData();
+  body.append("file", file);
+  try {
+    state.profile = await api("/api/profile/resume", { method: "POST", body });
+    fillProfileForm();
+    state.resumeReady = true;
+    state.forceWelcome = "roles";
+    await loadRoleReview();
+    showWelcome();
+    showBanner("Resume uploaded. Choose the roles to look for.");
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+
+$("welcome-skip-resume").addEventListener("click", () => {
+  state.resumeReady = true;
+  state.forceWelcome = "roles";
+  showWelcome();
+});
+
+$("welcome-read").addEventListener("click", async () => {
+  state.resumeReady = true;
+  state.forceWelcome = "roles";
+  await loadRoleReview();
+  showWelcome();
+});
+
+$("welcome-yoe-min").addEventListener("input", updateWelcomeWindow);
+$("welcome-yoe-max").addEventListener("input", updateWelcomeWindow);
+
+$("welcome-roles-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const saved = await api("/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(welcomeProfile({
+        roles: selectedWelcomeRoles(),
+        yoe_min: numberOrNull($("welcome-yoe-min").value),
+        yoe_max: numberOrNull($("welcome-yoe-max").value),
+      })),
+    });
+    state.profile = await api("/api/profile/welcome", { method: "POST" });
+    state.profile = { ...state.profile, ...saved, welcome_done: true };
+    await completeWelcome(state.profile);
+    showBanner("Showing jobs for those roles and years. Search looks through every collected job.");
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+
+$("welcome-skip-roles").addEventListener("click", async () => {
+  try {
+    state.forceWelcome = null;
+    state.profile = await api("/api/profile/welcome", { method: "POST" });
+    showWelcome();
+    await loadCurrent();
+  } catch (error) {
+    showBanner(error.message, true);
+  }
+});
+
+$("edit-roles").addEventListener("click", async () => {
+  state.forceWelcome = "roles";
+  await loadRoleReview();
+  showWelcome();
+});
+
+$("reupload-resume").addEventListener("click", () => {
+  state.forceWelcome = "resume";
+  showWelcome();
+});
+
+$("add-posting").addEventListener("click", () => {
+  $("posting-error").hidden = true;
+  $("posting-modal").hidden = false;
+  $("posting-title-input").focus();
+});
+
+$("posting-close").addEventListener("click", closePosting);
+$("posting-modal").addEventListener("click", (event) => {
+  if (event.target === $("posting-modal")) closePosting();
+});
+
+$("posting-bookmarklet").addEventListener("click", async () => {
+  await copyText(SAVE_BOOKMARKLET);
+  showBanner("Bookmarklet copied. Save it as a bookmark, then open it on a LinkedIn job.");
+});
+
+$("posting-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("posting-error").hidden = true;
+  try {
+    const result = await api("/api/import/posting", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: $("posting-title-input").value,
+        company: $("posting-company").value,
+        location: $("posting-location").value,
+        url: $("posting-url").value,
+        description: $("posting-description").value,
+        source: $("posting-source").value,
+      }),
+    });
+    closePosting();
+    $("posting-form").reset();
+    showBanner(`Saved. Added ${result.added}, updated ${result.updated}.`);
+    await refreshSideData();
+    await loadCurrent();
+  } catch (error) {
+    $("posting-error").hidden = false;
+    $("posting-error").textContent = error.message;
+  }
+});
+
+$("find-boards").addEventListener("click", async () => {
+  const button = $("find-boards");
+  button.disabled = true;
+  showBanner("Sampling the public registry for Indian and remote boards.");
+  try {
+    const result = await api("/api/suggestions/refresh", { method: "POST" });
+    state.suggestions = result.suggestions || [];
+    renderSuggestions();
+    showBanner(state.suggestions.length
+      ? `Found ${state.suggestions.length} boards. Add one, then Fetch.`
+      : "This sample had no new Indian or remote boards.");
+  } catch (error) {
+    showBanner(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 init();

@@ -6,7 +6,9 @@ import sqlite3
 import httpx
 
 from app.config import USER_AGENT
+from app.contacts import scan_unscanned
 from app.db import connect
+from app.feeds import fetch_remote_feeds
 from app.enrich import enrich_company
 from app.htmlutil import html_to_text, sanitize_html
 from app.parse import (
@@ -337,6 +339,24 @@ def fetch_boards() -> dict:
                         merged += 1
                     else:
                         skipped += 1
+        feed_jobs, feed_errors = fetch_remote_feeds(client, *_feed_query())
+    errors.extend(feed_errors)
+    with connect() as conn:
+        for raw in feed_jobs:
+            if not raw.company_name:
+                skipped += 1
+                continue
+            company = company_for_name(conn, raw.company_name)
+            kind = upsert_job(conn, company["id"], company["name"], raw)
+            if kind == "added":
+                added += 1
+            elif kind == "updated":
+                updated += 1
+            elif kind == "merged":
+                merged += 1
+            else:
+                skipped += 1
+        scan_unscanned(conn)
     enrichment_errors = _enrich_missing(companies)
     return {
         "added": added,
@@ -346,6 +366,53 @@ def fetch_boards() -> dict:
         "errors": errors,
         "enrichment_errors": enrichment_errors,
     }
+
+
+def _feed_query() -> tuple[str, str]:
+    with connect() as conn:
+        row = conn.execute("SELECT roles_json, locations_json FROM profile WHERE id = 1").fetchone()
+    if row is None:
+        return "", ""
+    from app.db import loads
+
+    roles = [str(item).strip() for item in loads(row["roles_json"], []) if str(item).strip()]
+    places = [str(item).strip() for item in loads(row["locations_json"], []) if str(item).strip()]
+    where = ""
+    for place in places:
+        if place.casefold() not in {"remote", "hybrid", "onsite"}:
+            where = place
+            break
+    return (roles[0] if roles else ""), where
+
+
+def import_posting(title: str, company: str, location: str, url: str, description: str, source: str) -> dict:
+    cleaned_title = " ".join((title or "").split())
+    cleaned_company = " ".join((company or "").split())
+    cleaned_location = " ".join((location or "").split())[:120]
+    cleaned_url = (url or "").strip()
+    text = (description or "").strip()
+    if source not in {"linkedin", "import"}:
+        raise ValueError("Choose LinkedIn or another page.")
+    if not cleaned_title or len(cleaned_title) > 180:
+        raise ValueError("Enter the job title.")
+    if not cleaned_company or len(cleaned_company) > 120:
+        raise ValueError("Enter the company name.")
+    if len(text) < 40:
+        raise ValueError("Paste the description. A title alone cannot be matched.")
+    if cleaned_url and not cleaned_url.startswith(("http://", "https://")):
+        raise ValueError("The posting link should start with https://.")
+    external = hashlib.sha1((cleaned_url or f"{cleaned_company}|{cleaned_title}|{cleaned_location}").encode()).hexdigest()[:16]
+    raw = RawJob(
+        source=source,
+        external_id=external,
+        title=cleaned_title,
+        location=cleaned_location,
+        description_html="",
+        description_text=text[:50_000],
+        apply_url=cleaned_url[:500],
+        company_name=cleaned_company,
+    )
+    return import_raw_jobs([raw])
 
 
 def import_raw_jobs(raw_jobs: list[RawJob]) -> dict:

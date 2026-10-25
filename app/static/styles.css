@@ -60,18 +60,23 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .banner.error { border-color: #e4b4b4; background: #fff6f6; color: var(--danger); }
 
-.layout {
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  min-height: 0;
-}
+.layout { min-height: 0; }
 
-.sidebar {
-  padding: 16px;
-  border-right: 1px solid var(--line);
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: end;
+  padding: 10px 18px;
   background: var(--panel);
-  overflow: auto;
+  border-bottom: 1px solid var(--line);
 }
+.filter-bar .field { margin: 0; min-width: 128px; flex: 1 1 140px; }
+.filter-bar .search-field { flex: 2 1 220px; }
+.filter-bar .check { flex: 1 1 180px; margin: 0 0 6px; }
+.filter-bar .btn.quiet { width: auto; margin-bottom: 2px; }
+.search-summary { margin-bottom: 12px; }
+.card-label { margin: 10px 0 2px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 
 main { overflow: auto; padding: 16px 18px 40px; min-width: 0; }
 
@@ -110,6 +115,9 @@ textarea { resize: vertical; }
   border: 1px solid #c9d0da;
   background: #fff;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }
 .btn:hover { border-color: #9aa6b5; }
 .btn.primary { background: #1d2a3f; color: #fff; border-color: #1d2a3f; }
@@ -220,15 +228,71 @@ textarea { resize: vertical; }
 .modal[hidden] { display: none; }
 .dialog {
   width: min(440px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
   background: #fff;
   border-radius: 10px;
   padding: 18px;
   box-shadow: 0 16px 50px rgba(20, 24, 31, 0.2);
 }
+.dialog.wide { width: min(640px, 100%); }
+.packet { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.packet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.packet-row span { display: block; color: var(--muted); font-size: 12px; }
+.packet-row strong { font-weight: 560; font-size: 14px; word-break: break-word; }
+.group-label { margin: 16px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .dialog h2 { margin: 0 0 12px; font-size: 18px; }
 
+.excerpt { margin: 6px 0 8px; color: var(--ink); font-size: 14px; line-height: 1.45; }
+.skill.miss { background: #f4f1ea; color: #6b5b45; }
+.welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  background: rgba(20, 24, 31, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.welcome-card {
+  width: min(640px, 100%);
+  max-height: min(90vh, 880px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 10px;
+  padding: 22px;
+}
+.welcome-card h2 { margin: 0 0 8px; font-size: 22px; }
+.role-choices { display: grid; gap: 6px; }
+.role-review { margin-bottom: 14px; }
+.role-review-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.role-review h2 { margin: 0; font-size: 18px; }
+.role-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+.role-card h3 { margin: 0 0 4px; font-size: 16px; }
+.role-card p { margin: 4px 0; }
+.role-card .also { color: var(--muted); font-size: 13px; }
+.role-card ul { margin: 6px 0 0; padding-left: 18px; }
+.role-card li { margin: 4px 0; }
+.docs { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
+.docs h1 { font-size: 28px; letter-spacing: -0.03em; }
+.docs h2 { font-size: 20px; margin-top: 28px; }
+.docs p, .docs li { line-height: 1.5; }
+.docs code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.92em; }
+.docs a { color: var(--blue); }
+
 @media (max-width: 800px) {
-  .layout { grid-template-columns: 1fr; }
-  .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   .split { grid-template-columns: 1fr; }
 }

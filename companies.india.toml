@@ -1,0 +1,77 @@
+# Public Greenhouse, Lever, and Ashby boards checked against the live API.
+# Settings → Add Indian boards inserts these. Delete any you do not want.
+
+[[company]]
+name = "Razorpay"
+board_type = "greenhouse"
+board_token = "razorpaysoftwareprivatelimited"
+
+[[company]]
+name = "CRED"
+board_type = "lever"
+board_token = "cred"
+
+[[company]]
+name = "Meesho"
+board_type = "lever"
+board_token = "meesho"
+
+[[company]]
+name = "InMobi"
+board_type = "greenhouse"
+board_token = "inmobi"
+
+[[company]]
+name = "Sarvam AI"
+board_type = "ashby"
+board_token = "sarvam"
+
+[[company]]
+name = "Groww"
+board_type = "greenhouse"
+board_token = "groww"
+
+[[company]]
+name = "Paytm"
+board_type = "lever"
+board_token = "paytm"
+
+[[company]]
+name = "Hevo"
+board_type = "lever"
+board_token = "hevodata"
+
+[[company]]
+name = "HackerRank"
+board_type = "greenhouse"
+board_token = "hackerrank"
+
+[[company]]
+name = "Pocket FM"
+board_type = "lever"
+board_token = "pocketfm"
+
+[[company]]
+name = "Atlan"
+board_type = "ashby"
+board_token = "atlan"
+
+[[company]]
+name = "SigNoz"
+board_type = "ashby"
+board_token = "signoz"
+
+[[company]]
+name = "Mindtickle"
+board_type = "lever"
+board_token = "mindtickle"
+
+[[company]]
+name = "Sigmoid"
+board_type = "greenhouse"
+board_token = "sigmoid"
+
+[[company]]
+name = "Druva"
+board_type = "greenhouse"
+board_token = "druva"

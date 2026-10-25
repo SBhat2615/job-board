@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.config import DATA_DIR, DB_PATH, SAMPLE_WATCHLIST
+from app.config import DATA_DIR, DB_PATH, INDIA_WATCHLIST, SAMPLE_WATCHLIST
 from app.parse import normalize, utcnow
 
 SCHEMA = """
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     discard_note TEXT,
     applied_at TEXT,
     discarded_at TEXT,
+    contacts_scanned INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(company_id, source, external_id)
@@ -81,7 +82,22 @@ CREATE TABLE IF NOT EXISTS profile (
     skills_json TEXT NOT NULL DEFAULT '[]',
     resume_text TEXT,
     resume_filename TEXT,
-    hide_unknown_salary INTEGER NOT NULL DEFAULT 0
+    hide_unknown_salary INTEGER NOT NULL DEFAULT 0,
+    full_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    linkedin_url TEXT NOT NULL DEFAULT '',
+    github_url TEXT NOT NULL DEFAULT '',
+    portfolio_url TEXT NOT NULL DEFAULT '',
+    notice_period TEXT NOT NULL DEFAULT '',
+    current_title TEXT NOT NULL DEFAULT '',
+    cover_note TEXT NOT NULL DEFAULT '',
+    prefer_text TEXT NOT NULL DEFAULT '',
+    avoid_text TEXT NOT NULL DEFAULT '',
+    yoe_min INTEGER,
+    yoe_max INTEGER,
+    welcome_done INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS rules (
@@ -93,11 +109,88 @@ CREATE TABLE IF NOT EXISTS rules (
     UNIQUE(kind, normalized_value)
 );
 
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+    parent_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    subject TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    follow_up_on TEXT,
+    sent_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS job_answers (
+    id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS role_comparisons (
+    cache_key TEXT PRIMARY KEY,
+    answer TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS board_suggestions (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    board_type TEXT NOT NULL,
+    board_token TEXT NOT NULL,
+    sample_location TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    fetched_at TEXT NOT NULL,
+    UNIQUE(board_type, board_token)
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_dedupe ON jobs(dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs(posted_at);
+CREATE INDEX IF NOT EXISTS idx_contacts_job ON contacts(job_id);
+CREATE INDEX IF NOT EXISTS idx_messages_job ON messages(job_id);
+CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status, follow_up_on);
+CREATE INDEX IF NOT EXISTS idx_job_answers_job ON job_answers(job_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_job_email ON contacts(job_id, email) WHERE email != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_job_link ON contacts(job_id, link) WHERE link != '';
 """
+
+_PROFILE_COLUMNS = {
+    "full_name": "TEXT NOT NULL DEFAULT ''",
+    "email": "TEXT NOT NULL DEFAULT ''",
+    "phone": "TEXT NOT NULL DEFAULT ''",
+    "city": "TEXT NOT NULL DEFAULT ''",
+    "linkedin_url": "TEXT NOT NULL DEFAULT ''",
+    "github_url": "TEXT NOT NULL DEFAULT ''",
+    "portfolio_url": "TEXT NOT NULL DEFAULT ''",
+    "notice_period": "TEXT NOT NULL DEFAULT ''",
+    "current_title": "TEXT NOT NULL DEFAULT ''",
+    "cover_note": "TEXT NOT NULL DEFAULT ''",
+    "prefer_text": "TEXT NOT NULL DEFAULT ''",
+    "avoid_text": "TEXT NOT NULL DEFAULT ''",
+    "yoe_min": "INTEGER",
+    "yoe_max": "INTEGER",
+    "welcome_done": "INTEGER NOT NULL DEFAULT 0",
+}
 
 
 def load_sample_watchlist(text: str) -> list[dict[str, str]]:
@@ -135,13 +228,28 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    profile_columns = _column_names(conn, "profile")
+    for name, ddl in _PROFILE_COLUMNS.items():
+        if name not in profile_columns:
+            conn.execute(f"ALTER TABLE profile ADD COLUMN {name} {ddl}")
+    if "contacts_scanned" not in _column_names(conn, "jobs"):
+        conn.execute("ALTER TABLE jobs ADD COLUMN contacts_scanned INTEGER NOT NULL DEFAULT 0")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         existing = conn.execute("SELECT COUNT(*) AS n FROM companies").fetchone()["n"]
-        if existing == 0 and SAMPLE_WATCHLIST.exists():
+        watchlist = INDIA_WATCHLIST if INDIA_WATCHLIST.exists() else SAMPLE_WATCHLIST
+        if existing == 0 and watchlist.exists():
             now = utcnow()
-            for item in load_sample_watchlist(SAMPLE_WATCHLIST.read_text(encoding="utf-8")):
+            for item in load_sample_watchlist(watchlist.read_text(encoding="utf-8")):
                 conn.execute(
                     """
                     INSERT INTO companies (name, normalized_name, board_type, board_token, is_sample, created_at)

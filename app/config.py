@@ -8,6 +8,8 @@ DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "jobs.sqlite"
 RESUME_PATH = DATA_DIR / "resume.pdf"
 SAMPLE_WATCHLIST = ROOT / "companies.example.toml"
+INDIA_WATCHLIST = ROOT / "companies.india.toml"
+REMOTE_WATCHLIST = ROOT / "companies.remote.toml"
 
 USER_AGENT = (
     "PersonalJobBoard/0.1 (personal local research; "

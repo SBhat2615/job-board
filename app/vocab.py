@@ -6,7 +6,8 @@ EMPLOYMENT = ["full-time", "part-time", "contract", "intern", "unknown"]
 WORK_AUTH = ["sponsorship", "authorization_required", "citizenship", "unknown"]
 TEAM_SIZES = ["1-10", "11-50", "51-200", "201-1000", "1000+"]
 POSTED_WITHIN = ["1", "3", "7", "30"]
-SOURCES = ["greenhouse", "lever", "ashby", "import"]
+SOURCES = ["greenhouse", "lever", "ashby", "jobicy", "remoteok", "himalayas", "adzuna", "linkedin", "import"]
+MARKETS = ["india-remote", "india", "remote"]
 DISCARD_REASONS = ["company", "role", "location", "seniority", "compensation", "visa", "other"]
 CURRENCIES = ["USD", "INR", "EUR", "GBP"]
 
@@ -55,7 +56,17 @@ LABELS = {
         "greenhouse": "Greenhouse",
         "lever": "Lever",
         "ashby": "Ashby",
+        "jobicy": "Jobicy",
+        "remoteok": "Remote OK",
+        "himalayas": "Himalayas",
+        "adzuna": "Adzuna",
+        "linkedin": "LinkedIn",
         "import": "Import",
+    },
+    "market": {
+        "india-remote": "India & remote",
+        "india": "India",
+        "remote": "Remote",
     },
     "discard_reason": {
         "company": "Company is wrong for me",
@@ -78,6 +89,7 @@ def vocab_payload() -> dict:
         "team_sizes": TEAM_SIZES,
         "posted_within": POSTED_WITHIN,
         "sources": SOURCES,
+        "markets": MARKETS,
         "discard_reasons": DISCARD_REASONS,
         "currencies": CURRENCIES,
         "labels": LABELS,

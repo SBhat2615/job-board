@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job board docs</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <article class="docs">
+    <p><a href="/">Back to the board</a></p>
+    <h1>How this board works</h1>
+    <p>The board runs on your machine at <a href="http://127.0.0.1:8765/">http://127.0.0.1:8765/</a>. It has no account. Jobs, the resume, and drafts stay in a local database.</p>
+
+    <h2>First visit</h2>
+    <p>The first screen is a resume upload. A file already on the machine can be read as it is, or replaced. You can upload again later with <strong>Re-upload resume</strong>.</p>
+    <p>The next screen shows the latest role read from the resume, similar roles you can check, a box to type another role, and years of experience. The feed then shows jobs for the roles you checked, inside one year below and one year above that range. A posting that says 3–7 years stays when that range overlaps. A posting with no years stated stays in the list. Search looks through every collected job when you want a wider set.</p>
+
+    <h2>Roles from the resume</h2>
+    <p>The reader looks for job titles in the PDF. When the PDF names skills and no title, it suggests a role from those skills. Machine learning, deep learning, or PyTorch suggests Machine learning engineer. You uncheck anything that does not belong, and you add other roles in the box under the list.</p>
+    <p>After that, add a role from the Roles section at the top of the feed, or from Settings → Target roles. Remove a role from its card. Saving a role does not filter the feed. <strong>Show these jobs</strong> on a card does.</p>
+
+    <h2>Machine learning engineer and AI engineer</h2>
+    <p>Machine learning engineer matches that title and ML engineer. AI engineer, SDE (AI), generative AI engineer, and LLM engineer are listed so you can select them. They are not added until you check them. The same pattern covers a few other families, such as data scientist and data engineer.</p>
+    <p>The match is local. The title and description are compared on this machine. There is no call to a semantic search service.</p>
+    <p>Two public options exist, and this board does not use them. <a href="https://esco.ec.europa.eu/en/use-esco/use-esco-services-api/esco-web-service-api">ESCO</a> is a free European occupation classification. Its groups are broad, so a title such as AI engineer is not a reliable alias for machine learning engineer. <a href="https://www.hirebase.org/products/semantic-search-api">Hirebase</a> offers semantic job search with a small free monthly allowance. That search runs on their index, not on the postings stored here, and it would send the query off your machine. A title family keeps the search on the jobs you have already collected.</p>
+    <p>A one-word title such as “AI” is not enough. The posting needs a close title, such as AI engineer. Bangalore in the location filter also matches Bengaluru.</p>
+
+    <h2>What a job is missing from your resume</h2>
+    <p>Each job in the feed has two fields. <strong>Expectations</strong> is the requirements text from that posting. <strong>What's missing</strong> names skills in those requirements that are not on your resume. The list uses a fixed skill catalog, so a rare tool named only once may not appear.</p>
+    <p><strong>Ask about this job</strong> can use a free local model. Run a server that speaks the OpenAI chat API, then put this in <code>.env</code> and restart the board:</p>
+    <pre><code>OPENAI_API_KEY=local
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_MODEL=llama3.2</code></pre>
+    <p>Ollama is one program that serves that address. Any non-empty key is enough for a local server. Leave the key unset and the skill list remains the comparison.</p>
+
+    <h2>Keep a LinkedIn posting</h2>
+    <p>LinkedIn does not offer a feed or a connector this board can call. A job you see there stays untracked until you save it here.</p>
+    <ol>
+      <li>Open <strong>Add posting</strong>.</li>
+      <li>Paste the title, company, location, link, and the full description.</li>
+      <li>Leave the source on LinkedIn and save.</li>
+    </ol>
+    <p>The posting then uses the same role match, years window, expectations, and drafts as any other job. Search finds it again. The platform filter has a LinkedIn choice.</p>
+    <p><strong>Copy save bookmarklet</strong> in that dialog tries to read the open LinkedIn job and send it to this board. LinkedIn is an https page and this board is http on your machine, so the browser may block the bookmarklet. Pasting is the path that works.</p>
+    <p>Naukri, Instahyre, and Cutshort have the same limit. Paste those too, and choose “Another page” as the source.</p>
+
+    <h2>Where the other jobs come from</h2>
+    <p><strong>Fetch</strong> reads the Greenhouse, Lever, and Ashby boards in Settings, then India and open-remote listings from Jobicy, Remote OK, and Himalayas. A company board returns every open role on that page. The roles you select, and the years window, are what the feed shows.</p>
+    <p><strong>Find more boards</strong> samples a public registry for Indian or remote Greenhouse, Lever, and Ashby companies. It does not download every job. Add a board, then Fetch.</p>
+    <p>Adzuna’s India search is optional. Copy <code>.env.example</code> to <code>.env</code> and set <code>ADZUNA_APP_ID</code> and <code>ADZUNA_APP_KEY</code>. When a target role and a city are saved, that search uses the first of each.</p>
+    <p>CSV or JSON import is under Settings. Each row needs a title and a company. An example is <code>examples/jobs.csv</code>.</p>
+
+    <h2>Filters, discard, and salary</h2>
+    <p>Filters sit across the top. Reset filters clears them. Preferred locations are available in the location menu after you save them under Settings. They are not selected on their own. Search ignores the role and years limit and looks through every collected job.</p>
+    <p>Discard stores a reason. “Company is wrong for me” can hide that company from the feed afterward. A title phrase is hidden only when you type one. Restore on the Discarded tab puts the job back and removes that company hide rule.</p>
+    <p>Salary is compared inside the currency you pick. Jobs with no parsed salary stay visible unless you hide them. Work-authorization tags appear only when the posting says so.</p>
+    <p>Cards show the first requirement lines, and flags for a closed location, open worldwide, relocation required, or a years requirement. Preferred phrases and a poor-fit phrase affect <strong>Best match</strong> and the warnings on a card. A poor-fit phrase leaves the job visible. Newest stays the default sort.</p>
+
+    <h2>Apply, referrals, and drafts</h2>
+    <p>Settings → Application holds the name, email, phone, links, and note used for an application packet and for referral drafts. Fill those in. Until the name is there, a draft says “[your name]”.</p>
+    <p><strong>Prepare application</strong> copies those fields and links to the portal. Greenhouse, Lever, and Ashby accept the application on the employer’s form. The autofill bookmarklet fills the usual fields on that page and does not submit.</p>
+    <p>A description lists emails and LinkedIn profiles that were written on the posting, and anyone you add. <strong>Draft referral</strong> writes a note you can edit, open in your mail app, and mark sent. Marking a referral sent schedules a follow-up five days later. The Outreach tab keeps drafts, sent mail, replies, and what is due.</p>
+    <p><strong>Draft from checked lines</strong> quotes resume sentences that share a skill with the requirements. It saves a cover note and form answers on that job. Marking one used does not send it.</p>
+    <p><strong>Ask about this job</strong> uses the same model key as the role comparison. The question, a short excerpt, and the checked resume lines go to that one job.</p>
+
+    <h2>Company facts</h2>
+    <p>The first fetch looks up each company on Wikidata and Wikipedia and stores team size, industry, and a short summary when the public record is clearly that company. Open a description to edit those fields or refresh them. Set <code>TAVILY_API_KEY</code> if you also want a few sourced web snippets. The board works without it.</p>
+  </article>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Remote-friendly company boards on the same public APIs.
+# These lists are large. Add them only if you want them in the feed.
+
+[[company]]
+name = "GitLab"
+board_type = "greenhouse"
+board_token = "gitlab"
+
+[[company]]
+name = "Notion"
+board_type = "ashby"
+board_token = "notion"
+
+[[company]]
+name = "Figma"
+board_type = "greenhouse"
+board_token = "figma"
+
+[[company]]
+name = "Supabase"
+board_type = "ashby"
+board_token = "supabase"
+
+[[company]]
+name = "PostHog"
+board_type = "ashby"
+board_token = "posthog"

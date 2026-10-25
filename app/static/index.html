@@ -13,19 +13,33 @@
       <p id="count" class="count">0 of 0 jobs</p>
     </div>
     <div class="header-actions">
+      <a class="btn" href="/docs">Docs</a>
       <button type="button" id="fetch" class="btn primary">Fetch</button>
+      <button type="button" id="add-posting" class="btn">Add posting</button>
       <button type="button" id="settings-toggle" class="btn">Settings</button>
     </div>
   </header>
   <div id="banner" class="banner" hidden></div>
-  <div class="layout">
-    <aside class="sidebar" id="sidebar">
-      <form id="filters">
-        <label class="field">Search
-          <input id="q" type="search" placeholder="title, company, description" autocomplete="off">
+  <form id="filters" class="filter-bar">
+        <label class="field search-field">Search
+          <input id="q" type="search" placeholder="Search every job" autocomplete="off">
         </label>
-        <label class="field">Role query
+        <label class="field">One role
           <select id="role"></select>
+        </label>
+        <label class="field">Market
+          <select id="market">
+            <option value="india-remote">India &amp; remote</option>
+            <option value="india">India</option>
+            <option value="remote">Remote</option>
+            <option value="any">Anywhere</option>
+          </select>
+        </label>
+        <label class="field">Sort
+          <select id="sort">
+            <option value="">Newest</option>
+            <option value="match">Best match</option>
+          </select>
         </label>
         <label class="field">Platform
           <select id="source"></select>
@@ -62,27 +76,49 @@
           Hide jobs with no salary
         </label>
         <button type="button" id="reset-filters" class="btn quiet">Reset filters</button>
-      </form>
-    </aside>
+  </form>
+  <div class="layout">
     <main>
       <section id="board-view">
+        <section id="search-summary" class="search-summary">
+          <p id="search-summary-text" class="hint"></p>
+          <div class="row">
+            <button type="button" id="edit-roles" class="btn">Edit roles</button>
+            <button type="button" id="reupload-resume" class="btn">Re-upload resume</button>
+          </div>
+        </section>
         <div class="tabs" role="tablist">
           <button type="button" class="tab active" data-status="feed" role="tab">Feed <span id="count-feed">0</span></button>
           <button type="button" class="tab" data-status="applied" role="tab">Applied <span id="count-applied">0</span></button>
           <button type="button" class="tab" data-status="discarded" role="tab">Discarded <span id="count-discarded">0</span></button>
+          <button type="button" class="tab" data-status="outreach" role="tab">Outreach <span id="count-outreach">0</span></button>
         </div>
         <div id="jobs" class="jobs"></div>
       </section>
       <section id="settings-view" hidden>
         <div class="settings">
           <h2>Profile</h2>
-          <p class="hint">These become the sidebar defaults the next time you open the board. Leave them empty to see every job you have collected.</p>
+          <p class="hint">The feed uses the roles and years you save here. Search looks through every collected job. Re-upload a resume from the button above the feed, or from the resume form below.</p>
           <form id="profile-form" class="stack">
             <label class="field">Target roles
               <input id="profile-roles" placeholder="data scientist, platform engineer">
             </label>
             <label class="field">Preferred locations
               <input id="profile-locations" placeholder="remote, Bengaluru">
+            </label>
+            <div class="split">
+              <label class="field">Years of experience, from
+                <input id="profile-yoe-min" type="number" min="0" max="40" step="1" placeholder="2">
+              </label>
+              <label class="field">Years of experience, to
+                <input id="profile-yoe-max" type="number" min="0" max="40" step="1" placeholder="3">
+              </label>
+            </div>
+            <label class="field">Roles to prefer
+              <textarea id="profile-prefer" rows="2" placeholder="growth, ownership, machine learning"></textarea>
+            </label>
+            <label class="field">Poor fit if the posting says
+              <textarea id="profile-avoid" rows="2" placeholder="maintenance-only, must relocate"></textarea>
             </label>
             <div class="split">
               <label class="field">Work mode
@@ -107,6 +143,44 @@
             <label class="field">Skills to highlight
               <input id="profile-skills" placeholder="Filled in when you upload a resume">
             </label>
+            <h2>Application</h2>
+            <p class="hint">These fill the apply packet and the referral drafts. You still submit each portal application yourself.</p>
+            <div class="split">
+              <label class="field">Full name
+                <input id="profile-name" autocomplete="name">
+              </label>
+              <label class="field">Email
+                <input id="profile-email" type="email" autocomplete="email">
+              </label>
+            </div>
+            <div class="split">
+              <label class="field">Phone
+                <input id="profile-phone" autocomplete="tel">
+              </label>
+              <label class="field">City
+                <input id="profile-city" placeholder="Bengaluru">
+              </label>
+            </div>
+            <label class="field">Current title
+              <input id="profile-title" placeholder="Data scientist">
+            </label>
+            <div class="split">
+              <label class="field">LinkedIn
+                <input id="profile-linkedin" placeholder="https://">
+              </label>
+              <label class="field">GitHub
+                <input id="profile-github" placeholder="https://">
+              </label>
+            </div>
+            <label class="field">Portfolio
+              <input id="profile-portfolio" placeholder="https://">
+            </label>
+            <label class="field">Notice period
+              <input id="profile-notice" placeholder="30 days">
+            </label>
+            <label class="field">Note to paste or include in mail
+              <textarea id="profile-note" rows="4" placeholder="Two or three sentences about the work you want."></textarea>
+            </label>
             <button type="submit" class="btn primary">Save profile</button>
           </form>
 
@@ -118,7 +192,14 @@
           </form>
 
           <h2>Companies</h2>
-          <p class="hint">The token is the slug in a public Greenhouse, Lever, or Ashby careers URL. Sample companies can be deleted.</p>
+          <p class="hint">Indian boards are Greenhouse, Lever, and Ashby pages that answered the public API. Fetch also pulls India and open-remote listings from Jobicy, Remote OK, and Himalayas. Naukri, Instahyre, and LinkedIn do not offer a key for this. Paste a LinkedIn job with Add posting.</p>
+          <div class="row">
+            <button type="button" id="add-india" class="btn">Add Indian boards</button>
+            <button type="button" id="add-remote" class="btn">Add remote company boards</button>
+            <button type="button" id="find-boards" class="btn">Find more boards</button>
+          </div>
+          <p class="hint">Find more boards samples the public Greenhouse, Lever, and Ashby registry for Indian or remote locations. It does not download every job. Add a board, then Fetch.</p>
+          <div id="suggestion-list" class="stack"></div>
           <form id="company-form" class="stack">
             <div class="split">
               <label class="field">Name
@@ -173,6 +254,129 @@
           <button type="button" id="discard-cancel" class="btn">Cancel</button>
         </div>
       </form>
+    </div>
+  </div>
+  <div id="apply-modal" class="modal" hidden>
+    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="apply-title">
+      <h2 id="apply-title">Prepare application</h2>
+      <p id="apply-hint" class="hint"></p>
+      <div id="packet-fields" class="packet"></div>
+      <p class="hint">Greenhouse, Lever, and Ashby only accept a submission from the employer’s own form. Copy the fields, or run the autofill bookmarklet on that page, then press their submit button.</p>
+      <div class="row">
+        <a id="apply-open" class="btn primary" href="#" target="_blank" rel="noopener noreferrer">Open portal</a>
+        <button type="button" id="apply-copy-all" class="btn">Copy all</button>
+        <button type="button" id="apply-bookmarklet" class="btn">Copy autofill bookmarklet</button>
+        <button type="button" id="apply-mark" class="btn">Mark applied</button>
+        <button type="button" id="apply-close" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="message-modal" class="modal" hidden>
+    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="message-title">
+      <h2 id="message-title">Referral draft</h2>
+      <p id="message-meta" class="hint"></p>
+      <form id="message-form" class="stack">
+        <label class="field">Subject
+          <input id="message-subject" required>
+        </label>
+        <label class="field">Message
+          <textarea id="message-body" rows="12" required></textarea>
+        </label>
+        <label class="field">Follow up on
+          <input id="message-follow" type="date">
+        </label>
+        <p id="message-hint" class="hint">Opening mail does not mark it sent. Mark sent after it leaves your inbox. A referral then comes due again in five days unless you pick another date.</p>
+        <p id="message-error" class="error" hidden></p>
+        <div class="row">
+          <button type="submit" class="btn">Save draft</button>
+          <button type="button" id="message-mail" class="btn">Open in mail</button>
+          <button type="button" id="message-sent" class="btn primary">Mark sent</button>
+          <button type="button" id="message-replied" class="btn">Mark replied</button>
+          <button type="button" id="message-followup" class="btn">Write follow-up</button>
+          <button type="button" id="message-close" class="btn">Close</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div id="posting-modal" class="modal" hidden>
+    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="posting-title">
+      <h2 id="posting-title">Add a posting</h2>
+      <p class="hint">LinkedIn does not offer a feed this board can call. Paste a job you found, or use the bookmarklet on that page. The posting stays here with the same filters, match notes, and drafts.</p>
+      <form id="posting-form" class="stack">
+        <div class="split">
+          <label class="field">Title
+            <input id="posting-title-input" required>
+          </label>
+          <label class="field">Company
+            <input id="posting-company" required>
+          </label>
+        </div>
+        <div class="split">
+          <label class="field">Location
+            <input id="posting-location" placeholder="Bengaluru">
+          </label>
+          <label class="field">Where you found it
+            <select id="posting-source">
+              <option value="linkedin">LinkedIn</option>
+              <option value="import">Another page</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">Link
+          <input id="posting-url" placeholder="https://">
+        </label>
+        <label class="field">Description
+          <textarea id="posting-description" rows="8" required placeholder="Paste the full posting."></textarea>
+        </label>
+        <p id="posting-error" class="error" hidden></p>
+        <div class="row">
+          <button type="submit" class="btn primary">Save posting</button>
+          <button type="button" id="posting-bookmarklet" class="btn">Copy save bookmarklet</button>
+          <button type="button" id="posting-close" class="btn">Close</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="welcome" class="welcome" hidden>
+    <div class="welcome-card">
+      <div id="welcome-resume">
+        <h2>Upload your resume</h2>
+        <p id="welcome-current" class="hint"></p>
+        <p class="hint">Upload a text-based PDF. You can replace it later. The next step reads roles from the file.</p>
+        <form id="welcome-resume-form" class="stack">
+          <input id="welcome-resume-file" type="file" accept="application/pdf,.pdf">
+          <div class="row">
+            <button type="submit" class="btn primary">Upload resume</button>
+            <button type="button" id="welcome-read" class="btn">Read this resume</button>
+            <button type="button" id="welcome-skip-resume" class="btn">Skip for now</button>
+          </div>
+        </form>
+      </div>
+      <div id="welcome-roles" hidden>
+        <h2>Roles to look for</h2>
+        <p id="welcome-skills" class="hint"></p>
+        <form id="welcome-roles-form" class="stack">
+          <div id="welcome-role-choices" class="role-choices"></div>
+          <label class="field">Add a role
+            <input id="welcome-role-extra" placeholder="SDE (AI)">
+          </label>
+          <div class="split">
+            <label class="field">Years of experience, from
+              <input id="welcome-yoe-min" type="number" min="0" max="40" step="1" placeholder="2">
+            </label>
+            <label class="field">Years of experience, to
+              <input id="welcome-yoe-max" type="number" min="0" max="40" step="1" placeholder="3">
+            </label>
+          </div>
+          <p id="welcome-window" class="hint"></p>
+          <div class="row">
+            <button type="submit" class="btn primary">Show matching jobs</button>
+            <button type="button" id="welcome-skip-roles" class="btn">Skip for now</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
   <script src="/static/app.js"></script>
