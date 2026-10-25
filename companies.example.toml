@@ -1,0 +1,17 @@
+# Loaded once, when the database has no companies yet.
+# Delete any of these in Settings. The token is the slug in the public careers URL.
+
+[[company]]
+name = "Discord"
+board_type = "greenhouse"
+board_token = "discord"
+
+[[company]]
+name = "Wealthfront"
+board_type = "lever"
+board_token = "wealthfront"
+
+[[company]]
+name = "Linear"
+board_type = "ashby"
+board_token = "linear"

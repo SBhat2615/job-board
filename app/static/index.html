@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job board</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Job board</h1>
+      <p id="count" class="count">0 of 0 jobs</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="fetch" class="btn primary">Fetch</button>
+      <button type="button" id="settings-toggle" class="btn">Settings</button>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <form id="filters">
+        <label class="field">Search
+          <input id="q" type="search" placeholder="title, company, description" autocomplete="off">
+        </label>
+        <label class="field">Role query
+          <select id="role"></select>
+        </label>
+        <label class="field">Platform
+          <select id="source"></select>
+        </label>
+        <label class="field">Work mode
+          <select id="work_mode"></select>
+        </label>
+        <label class="field">Seniority
+          <select id="seniority"></select>
+        </label>
+        <label class="field">Employment
+          <select id="employment"></select>
+        </label>
+        <label class="field">Team size
+          <select id="team_size"></select>
+        </label>
+        <label class="field">Work authorization
+          <select id="work_auth"></select>
+        </label>
+        <label class="field">Location
+          <select id="location"></select>
+        </label>
+        <label class="field">Posted within
+          <select id="posted_within"></select>
+        </label>
+        <label class="field">Min salary
+          <input id="salary_min" type="number" min="0" step="1000" placeholder="e.g. 120000" inputmode="numeric">
+        </label>
+        <label class="field">Currency
+          <select id="salary_currency"></select>
+        </label>
+        <label class="check">
+          <input id="hide_unknown_salary" type="checkbox">
+          Hide jobs with no salary
+        </label>
+        <button type="button" id="reset-filters" class="btn quiet">Reset filters</button>
+      </form>
+    </aside>
+    <main>
+      <section id="board-view">
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-status="feed" role="tab">Feed <span id="count-feed">0</span></button>
+          <button type="button" class="tab" data-status="applied" role="tab">Applied <span id="count-applied">0</span></button>
+          <button type="button" class="tab" data-status="discarded" role="tab">Discarded <span id="count-discarded">0</span></button>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+      <section id="settings-view" hidden>
+        <div class="settings">
+          <h2>Profile</h2>
+          <p class="hint">These become the sidebar defaults the next time you open the board. Leave them empty to see every job you have collected.</p>
+          <form id="profile-form" class="stack">
+            <label class="field">Target roles
+              <input id="profile-roles" placeholder="data scientist, platform engineer">
+            </label>
+            <label class="field">Preferred locations
+              <input id="profile-locations" placeholder="remote, Bengaluru">
+            </label>
+            <div class="split">
+              <label class="field">Work mode
+                <select id="profile-work-mode"></select>
+              </label>
+              <label class="field">Seniority
+                <select id="profile-seniority"></select>
+              </label>
+            </div>
+            <div class="split">
+              <label class="field">Salary floor
+                <input id="profile-salary" type="number" min="0" step="1000" placeholder="120000">
+              </label>
+              <label class="field">Currency
+                <select id="profile-currency"></select>
+              </label>
+            </div>
+            <label class="check">
+              <input id="profile-hide-salary" type="checkbox">
+              Hide jobs with no salary by default
+            </label>
+            <label class="field">Skills to highlight
+              <input id="profile-skills" placeholder="Filled in when you upload a resume">
+            </label>
+            <button type="submit" class="btn primary">Save profile</button>
+          </form>
+
+          <h2>Resume</h2>
+          <p class="hint" id="resume-status">No resume yet. Overlapping skills stay hidden until you upload a text-based PDF.</p>
+          <form id="resume-form" class="row">
+            <input id="resume-file" type="file" accept="application/pdf,.pdf">
+            <button type="submit" class="btn">Upload resume</button>
+          </form>
+
+          <h2>Companies</h2>
+          <p class="hint">The token is the slug in a public Greenhouse, Lever, or Ashby careers URL. Sample companies can be deleted.</p>
+          <form id="company-form" class="stack">
+            <div class="split">
+              <label class="field">Name
+                <input id="company-name" required>
+              </label>
+              <label class="field">Platform
+                <select id="company-type"></select>
+              </label>
+            </div>
+            <label class="field">Board token
+              <input id="company-token" placeholder="discord" required>
+            </label>
+            <button type="submit" class="btn">Add company</button>
+          </form>
+          <div id="company-list" class="stack"></div>
+
+          <h2>Import</h2>
+          <p class="hint">CSV or JSON with title, company, url, location, description, source, and posted_at. See examples/jobs.csv.</p>
+          <form id="import-form" class="row">
+            <input id="import-file" type="file" accept=".csv,.json,text/csv,application/json">
+            <button type="submit" class="btn">Import</button>
+          </form>
+
+          <h2>Hide rules</h2>
+          <p class="hint">A company rule keeps that employer out of the feed. A phrase rule hides titles that contain it. Applied and discarded jobs stay put.</p>
+          <div id="rule-list" class="stack"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title">
+      <h2 id="discard-title">Discard job</h2>
+      <form id="discard-form" class="stack">
+        <label class="field">Reason
+          <select id="discard-reason"></select>
+        </label>
+        <label class="field">Note
+          <textarea id="discard-note" rows="3" placeholder="Optional"></textarea>
+        </label>
+        <label class="check">
+          <input id="discard-hide-company" type="checkbox">
+          Also hide this company
+        </label>
+        <label class="field">Also hide titles containing
+          <input id="discard-phrase" placeholder="Optional, for example staff">
+        </label>
+        <p id="discard-error" class="error" hidden></p>
+        <div class="row">
+          <button type="submit" class="btn primary">Discard job</button>
+          <button type="button" id="discard-cancel" class="btn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
