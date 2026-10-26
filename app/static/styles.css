@@ -114,6 +114,7 @@ textarea { resize: vertical; }
   border-radius: 6px;
   border: 1px solid #c9d0da;
   background: #fff;
+  color: inherit;
   cursor: pointer;
   display: inline-flex;
   align-items: center;

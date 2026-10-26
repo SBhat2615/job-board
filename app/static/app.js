@@ -1,9 +1,7 @@
 const state = {
   vocab: null,
   profile: null,
-  companies: [],
   rules: [],
-  suggestions: [],
   status: "feed",
   defaultsApplied: false,
   discardId: null,
@@ -13,8 +11,6 @@ const state = {
   forceWelcome: null,
   resumeReady: false,
 };
-
-const AUTOFILL_BOOKMARKLET = `javascript:(async()=>{try{const p=await (await fetch('http://127.0.0.1:8765/api/profile/autofill')).json();let n=0;const fire=el=>{el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};const set=(el,v)=>{if(!el||!v)return;el.focus();el.value=v;fire(el);n+=1;};const named=ns=>{for(const name of ns){const el=document.querySelector('[name="'+name+'"]');if(el)return el;}return null;};const labeled=words=>{for(const label of document.querySelectorAll('label')){const text=(label.innerText||'').toLowerCase();if(!words.every(word=>text.includes(word)))continue;const id=label.getAttribute('for');const el=id?document.getElementById(id):label.querySelector('input,textarea');if(el)return el;}return null;};set(named(['first_name','firstName'])||labeled(['first','name']),p.first_name);set(named(['last_name','lastName'])||labeled(['last','name']),p.last_name);set(named(['name','full_name'])||labeled(['full','name']),p.full_name);set(named(['email','email_address'])||labeled(['email']),p.email);set(named(['phone','phone_number'])||labeled(['phone']),p.phone);set(named(['location','city'])||labeled(['city'])||labeled(['location']),p.city);set(named(['urls[LinkedIn]','linkedin'])||labeled(['linkedin']),p.linkedin_url);set(named(['urls[GitHub]','github'])||labeled(['github']),p.github_url);set(named(['urls[Portfolio]','website'])||labeled(['portfolio'])||labeled(['website']),p.portfolio_url);set(named(['cover_letter'])||labeled(['cover']),p.cover_note);alert(n?('Filled '+n+' fields. Review them, then submit the form yourself.'):'No matching fields on this page. Copy them from the job board instead.');}catch(e){alert('Could not read the local job board. Keep it running at 127.0.0.1:8765.');}})();`;
 
 const SAVE_BOOKMARKLET = `javascript:(async()=>{try{const selected=(window.getSelection&&String(window.getSelection()))||'';const box=document.querySelector('.jobs-description__content,.jobs-box__html-content,.jobs-description');const description=(selected.trim().length>40?selected.trim():(box?box.innerText:'')).trim();const heading=document.querySelector('h1');const title=((heading&&heading.innerText)||document.title||'').trim();const companyEl=document.querySelector('.job-details-jobs-unified-top-card__company-name,.jobs-unified-top-card__company-name,a[href*="/company/"]');const company=(companyEl&&companyEl.innerText||'').trim();const locEl=document.querySelector('.job-details-jobs-unified-top-card__primary-description-container,.jobs-unified-top-card__bullet');const place=((locEl&&locEl.innerText)||'').split('·')[0].trim();if(!title||!company||description.length<40){alert('Could not read the title, company, and description. Paste them with Add posting on the job board.');return;}const res=await fetch('http://127.0.0.1:8765/api/import/posting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,company,location:place,url:window.location.href,description,source:'linkedin'})});const body=await res.json();if(!res.ok){alert(body.detail||'Could not save this posting.');return;}alert('Saved on your job board. Refresh 127.0.0.1:8765.');}catch(e){alert('This page blocked the save. Use Add posting on the job board and paste the description.');}})();`;
 
@@ -85,7 +81,6 @@ function fillVocab() {
   fillSelect($("posted_within"), vocab.posted_within, vocab.labels.posted_within, "Any time");
   fillSelect($("salary_currency"), vocab.currencies, null, null);
   fillSelect($("profile-currency"), vocab.currencies, null, null);
-  fillSelect($("company-type"), ["greenhouse", "lever", "ashby"], vocab.labels.source, null);
   fillSelect($("discard-reason"), vocab.discard_reasons, vocab.labels.discard_reason, null);
 
   const pref = (select, values, labels) => {
@@ -203,23 +198,28 @@ function renderCard(job) {
   for (const phrase of job.avoid_hits || []) tags.push(tag(`Poor fit: ${phrase}`, "amber"));
 
   const actions = [];
-  actions.push(el("button", { type: "button", class: "btn", "data-action": "expand", "data-id": job.id }, "Description"));
-  actions.push(el("button", { type: "button", class: "btn", "data-action": "prepare", "data-id": job.id }, "Prepare application"));
-  if (state.status !== "applied") {
-    actions.push(el("button", { type: "button", class: "btn", "data-action": "applied", "data-id": job.id }, "Mark applied"));
-  }
+  actions.push(el("button", { type: "button", class: "btn", "data-action": "expand", "data-panel": "description", "data-id": job.id }, "Description"));
+  actions.push(el("button", { type: "button", class: "btn", "data-action": "expand", "data-panel": "referral", "data-id": job.id }, "Referral"));
   if (state.status !== "discarded") {
     actions.push(el("button", { type: "button", class: "btn", "data-action": "discard", "data-id": job.id }, "Discard"));
   } else {
     actions.push(el("button", { type: "button", class: "btn", "data-action": "restore", "data-id": job.id }, "Restore"));
   }
-  if (state.status === "applied") {
-    actions.push(el("button", { type: "button", class: "btn", "data-action": "restore", "data-id": job.id }, "Return to feed"));
+  const applyLinks = (job.links || []).filter((link) => link.apply_url);
+  if (!applyLinks.length && job.apply_url) applyLinks.push({ apply_url: job.apply_url, source: job.source });
+  for (const link of applyLinks) {
+    const source = label("source", link.source) || link.source;
+    const text = applyLinks.length > 1 && source ? `Apply External · ${source}` : "Apply External";
+    actions.push(el("a", { class: "btn primary", href: link.apply_url, target: "_blank", rel: "noopener noreferrer" }, text));
   }
-  for (const link of job.links || []) {
-    if (!link.apply_url) continue;
-    const text = (job.links || []).length > 1 ? `Apply on ${label("source", link.source) || link.source}` : "Apply";
-    actions.push(el("a", { class: "link", href: link.apply_url, target: "_blank", rel: "noopener noreferrer" }, text));
+  if (state.status === "outreach") {
+    actions.push(el("button", { type: "button", class: "btn", "data-action": "referred", "data-id": job.id }, "Got referred"));
+  }
+  if (state.status !== "applied") {
+    actions.push(el("button", { type: "button", class: "btn", "data-action": "applied", "data-id": job.id }, "Mark applied"));
+  }
+  if (state.status === "applied" || state.status === "outreach") {
+    actions.push(el("button", { type: "button", class: "btn", "data-action": "restore", "data-id": job.id }, "Return to feed"));
   }
 
   const children = [
@@ -249,8 +249,12 @@ function renderCard(job) {
     const note = job.discard_note ? ` — ${job.discard_note}` : "";
     children.push(el("p", { class: "note" }, `Discarded: ${reason}${note}`));
   }
+  if (state.status === "outreach") {
+    children.push(el("p", { class: "note" }, "Referral sent. It stays here until someone refers you, or you apply yourself."));
+  }
   if (state.status === "applied" && job.applied_at) {
-    children.push(el("p", { class: "note" }, `Applied ${job.applied_at}`));
+    const how = job.referred ? "With referral" : "Without referral";
+    children.push(el("p", { class: "note" }, `${how} · applied ${job.applied_at}`));
   }
   children.push(el("div", { class: "actions" }, actions));
   children.push(el("div", { class: "detail", hidden: "hidden" }));
@@ -262,6 +266,7 @@ function renderJobs(payload) {
     ? `${payload.jobs.length} of ${payload.matched} matching jobs`
     : `${payload.matched} of ${payload.total} jobs`;
   $("count-feed").textContent = `(${state.status === "feed" ? payload.matched : payload.counts.feed})`;
+  $("count-outreach").textContent = `(${payload.counts.outreach || 0})`;
   $("count-applied").textContent = `(${payload.counts.applied})`;
   $("count-discarded").textContent = `(${payload.counts.discarded})`;
   const host = $("jobs");
@@ -275,12 +280,11 @@ function renderJobs(payload) {
     } else if (state.status === "feed" && payload.total === 0 && payload.hidden > 0) {
       message = "Hide rules are keeping every remaining feed job out of view. Restore a company from Discarded, or delete a rule in Settings.";
     } else if (state.status === "feed" && payload.total > 0 && $("market").value !== "any") {
-      message = "Nothing in this market matches. Anywhere shows every saved job. Add Indian boards in Settings, then fetch.";
+      message = "Nothing in this market matches. Anywhere shows every saved job.";
     } else if (state.status === "feed" && payload.total === 0) {
-      const names = state.companies.map((company) => company.name).join(", ");
-      message = names
-        ? `No jobs yet. Fetch pulls ${names}. You can also add a company or import a file in Settings.`
-        : "No jobs yet. Add a company in Settings, then fetch.";
+      message = "No jobs yet. Fetch reads the company boards and the public feeds. Add posting saves one you paste.";
+    } else if (state.status === "outreach" && payload.total === 0) {
+      message = "No referral is out yet. Mark a referral sent and the job moves here until someone refers you.";
     } else if (state.status === "applied") {
       message = "You have not marked anything applied.";
     } else if (state.status === "discarded") {
@@ -289,7 +293,24 @@ function renderJobs(payload) {
     host.append(el("div", { class: "empty" }, message));
     return;
   }
+  if (state.status === "outreach") {
+    host.append(el("p", { class: "hint" }, "A job moves here when a referral is marked sent. Got referred files it under Applied, with the referral. Mark applied files it without one."));
+  }
+  if (state.status === "applied") {
+    const referred = payload.jobs.filter((job) => job.referred);
+    const direct = payload.jobs.filter((job) => !job.referred);
+    host.append(jobGroup("With referral", referred, "Jobs move here from Outreach after someone refers you."));
+    host.append(jobGroup("Without referral", direct, "Jobs you applied to directly."));
+    return;
+  }
   for (const job of payload.jobs) host.append(renderCard(job));
+}
+
+function jobGroup(title, jobs, empty) {
+  const block = el("section", {}, [el("h2", { class: "group-label" }, `${title} (${jobs.length})`)]);
+  if (!jobs.length) block.append(el("p", { class: "hint" }, empty));
+  for (const job of jobs) block.append(renderCard(job));
+  return block;
 }
 
 let loadToken = 0;
@@ -300,28 +321,6 @@ async function loadJobs() {
   if (token !== loadToken) return;
   renderJobs(payload);
   renderSearchSummary();
-}
-
-function renderCompanies() {
-  const host = $("company-list");
-  host.replaceChildren();
-  if (!state.companies.length) {
-    host.append(el("p", { class: "hint" }, "No companies yet."));
-    return;
-  }
-  for (const company of state.companies) {
-    const title = el("strong", {}, company.name);
-    const meta = [
-      label("source", company.board_type) || company.board_type || "Import",
-      company.board_token || "imported",
-      company.job_count ? `${company.job_count} jobs` : "no jobs yet",
-      company.is_sample ? "sample" : "",
-    ].filter(Boolean).join(" · ");
-    host.append(el("div", { class: "record" }, [
-      el("div", {}, [title, el("p", {}, meta)]),
-      el("button", { type: "button", class: "btn", "data-action": "delete-company", "data-id": company.id }, "Delete"),
-    ]));
-  }
 }
 
 function renderRules() {
@@ -341,17 +340,8 @@ function renderRules() {
 }
 
 async function refreshSideData() {
-  const [companies, rules, suggestions] = await Promise.all([
-    api("/api/companies"),
-    api("/api/rules"),
-    api("/api/suggestions"),
-  ]);
-  state.companies = companies;
-  state.rules = rules;
-  state.suggestions = suggestions || [];
-  renderCompanies();
+  state.rules = await api("/api/rules");
   renderRules();
-  renderSuggestions();
 }
 
 function signalList(signals) {
@@ -425,7 +415,7 @@ function referralBlock(job) {
       el("label", { class: "field" }, ["Email", el("input", { name: "email", placeholder: "ada@company.com" })]),
     ]),
     el("label", { class: "field" }, ["Profile link", el("input", { name: "link", placeholder: "https://" })]),
-    el("button", { type: "submit", class: "btn" }, "Add contact"),
+    el("button", { type: "submit", class: "btn" }, "Add referral"),
   ]));
   if (messages.length) {
     children.push(el("h3", {}, "Messages"));
@@ -457,26 +447,45 @@ function contactRow(contact) {
 
 function messageRow(message) {
   const when = message.follow_up_on ? `Follow up ${message.follow_up_on}` : message.status;
+  const buttons = [
+    el("button", { type: "button", class: "btn", "data-action": "edit-message", "data-message": message.id }, "Open"),
+  ];
+  if (message.status === "sent" && (message.kind === "referral" || message.kind === "follow_up")) {
+    buttons.push(el("button", {
+      type: "button",
+      class: "btn",
+      "data-action": "draft-followup",
+      "data-job": message.job_id,
+      "data-message": message.id,
+      "data-contact": message.contact_id || "",
+    }, "Write follow-up"));
+  }
   return el("div", { class: "record" }, [
     el("div", {}, [
       el("strong", {}, message.subject),
       el("p", {}, `${kindLabel(message.kind)} · ${message.status} · ${when}`),
     ]),
-    el("button", { type: "button", class: "btn", "data-action": "edit-message", "data-message": message.id }, "Open"),
+    el("div", { class: "row" }, buttons),
   ]);
 }
 
-async function toggleDetail(card) {
+function setPanelButtons(card, open) {
+  const description = card.querySelector('[data-panel="description"]');
+  const referral = card.querySelector('[data-panel="referral"]');
+  if (description) description.textContent = open === "description" ? "Hide description" : "Description";
+  if (referral) referral.textContent = open === "referral" ? "Hide referral" : "Referral";
+}
+
+async function toggleDetail(card, panelName = "description") {
   const panel = card.querySelector(".detail");
-  const button = card.querySelector('[data-action="expand"]');
-  if (!panel.hidden) {
+  if (panel.dataset.open === panelName && !panel.hidden) {
     panel.hidden = true;
-    button.textContent = "Description";
+    panel.dataset.open = "";
+    setPanelButtons(card, "");
     return;
   }
-  const id = card.getAttribute("data-id");
   if (!panel.dataset.loaded) {
-    const job = await api(`/api/jobs/${id}`);
+    const job = await api(`/api/jobs/${card.getAttribute("data-id")}`);
     const description = el("div", { class: "description" });
     description.innerHTML = job.description_html || "<p>No description was published.</p>";
     const facts = el("form", { class: "stack", "data-action": "facts" }, [
@@ -498,11 +507,22 @@ async function toggleDetail(card) {
     ]);
     facts.dataset.companyId = job.company_id;
     rememberMessages(job.messages || []);
-    panel.append(description, matchBlock(job), referralBlock(job), facts);
+    panel.append(
+      el("div", { class: "panel-description" }, [description, facts]),
+      el("div", { class: "panel-referral" }, [referralBlock(job)]),
+    );
     panel.dataset.loaded = "1";
   }
+  panel.querySelector(".panel-description").hidden = panelName !== "description";
+  panel.querySelector(".panel-referral").hidden = panelName !== "referral";
   panel.hidden = false;
-  button.textContent = "Hide description";
+  panel.dataset.open = panelName;
+  setPanelButtons(card, panelName);
+}
+
+async function reopenPanel(jobId, panelName) {
+  const card = document.querySelector(`.card[data-id="${jobId}"]`);
+  if (card) await toggleDetail(card, panelName);
 }
 
 function openDiscard(id) {
@@ -523,7 +543,6 @@ function closeDiscard() {
 function setSettings(open) {
   $("settings-view").hidden = !open;
   $("board-view").hidden = open;
-  $("sidebar").hidden = open;
   $("settings-toggle").textContent = open ? "Back to board" : "Settings";
 }
 
@@ -534,12 +553,7 @@ document.addEventListener("click", async (event) => {
   const id = target.dataset.id;
   try {
     if (action === "expand") {
-      await toggleDetail(target.closest(".card"));
-    } else if (action === "prepare") {
-      await openApply(id);
-    } else if (action === "copy-field") {
-      await copyText(state.packet.fields[Number(target.dataset.index)].value || "");
-      showBanner("Copied.");
+      await toggleDetail(target.closest(".card"), target.dataset.panel || "description");
     } else if (action === "draft-application") {
       const saved = await api(`/api/jobs/${target.dataset.job}/drafts`, {
         method: "POST",
@@ -548,7 +562,6 @@ document.addEventListener("click", async (event) => {
       });
       rememberMessages([saved.cover, saved.answers]);
       openMessage(saved.cover);
-      await refreshOutreachCount();
       await loadCurrent();
     } else if (action === "draft-referral") {
       const message = await api(`/api/jobs/${target.dataset.job}/messages`, {
@@ -558,7 +571,6 @@ document.addEventListener("click", async (event) => {
       });
       rememberMessages([message]);
       openMessage(message);
-      await refreshOutreachCount();
       await loadCurrent();
     } else if (action === "draft-followup") {
       const message = await api(`/api/jobs/${target.dataset.job}/messages`, {
@@ -572,14 +584,19 @@ document.addEventListener("click", async (event) => {
       });
       rememberMessages([message]);
       openMessage(message);
-      await refreshOutreachCount();
       await loadCurrent();
     } else if (action === "edit-message") {
       const message = (state.messages || {})[target.dataset.message];
       if (message) openMessage(message);
     } else if (action === "delete-contact") {
+      const jobId = target.dataset.job;
       await api(`/api/contacts/${id}`, { method: "DELETE" });
       showBanner("Contact removed.");
+      await loadCurrent();
+      await reopenPanel(jobId, "referral");
+    } else if (action === "referred") {
+      await api(`/api/jobs/${id}/referred`, { method: "POST" });
+      showBanner("Filed under Applied, with the referral.");
       await loadCurrent();
     } else if (action === "applied") {
       await api(`/api/jobs/${id}/applied`, { method: "POST" });
@@ -590,41 +607,16 @@ document.addEventListener("click", async (event) => {
       await api(`/api/jobs/${id}/restore`, { method: "POST" });
       await refreshSideData();
       await loadCurrent();
-    } else if (action === "add-suggestion") {
-      await api("/api/companies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: target.dataset.name,
-          board_type: target.dataset.type,
-          board_token: target.dataset.token,
-        }),
-      });
-      state.suggestions = (state.suggestions || []).filter((item) => !(item.board_type === target.dataset.type && item.board_token === target.dataset.token));
-      renderSuggestions();
-      await refreshSideData();
-      showBanner("Board added. Fetch to pull its jobs.");
-    } else if (action === "delete-company") {
-      const company = state.companies.find((item) => String(item.id) === id);
-      const name = company ? company.name : "this company";
-      if (!confirm(`Delete ${name} and its jobs?`)) return;
-      await api(`/api/companies/${id}`, { method: "DELETE" });
-      await refreshSideData();
-      await loadCurrent();
     } else if (action === "delete-rule") {
       await api(`/api/rules/${id}`, { method: "DELETE" });
       await refreshSideData();
       await loadCurrent();
     } else if (action === "enrich") {
       target.disabled = true;
+      const jobId = target.closest(".card").getAttribute("data-id");
       await api(`/api/companies/${id}/enrich`, { method: "POST" });
-      const card = target.closest(".card");
-      const panel = card.querySelector(".detail");
-      panel.dataset.loaded = "";
-      panel.replaceChildren();
-      panel.hidden = true;
-      await toggleDetail(card);
       await loadCurrent();
+      await reopenPanel(jobId, "description");
     }
   } catch (error) {
     showBanner(error.message, true);
@@ -647,11 +639,9 @@ $("jobs").addEventListener("submit", async (event) => {
         }),
       });
       showBanner("Answer saved on this job.");
-      const panel = askForm.closest(".detail");
-      panel.dataset.loaded = "";
-      panel.replaceChildren();
-      panel.hidden = true;
-      await toggleDetail(askForm.closest(".card"));
+      const jobId = askForm.dataset.job;
+      await loadCurrent();
+      await reopenPanel(jobId, "description");
     } catch (error) {
       showBanner(error.message, true);
     }
@@ -670,8 +660,10 @@ $("jobs").addEventListener("submit", async (event) => {
           link: contactForm.link.value,
         }),
       });
-      showBanner("Contact added.");
+      showBanner("Referral added.");
+      const jobId = contactForm.dataset.job;
       await loadCurrent();
+      await reopenPanel(jobId, "referral");
     } catch (error) {
       showBanner(error.message, true);
     }
@@ -692,7 +684,9 @@ $("jobs").addEventListener("submit", async (event) => {
       }),
     });
     showBanner("Saved company facts.");
+    const jobId = form.closest(".card").getAttribute("data-id");
     await loadCurrent();
+    await reopenPanel(jobId, "description");
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -732,7 +726,6 @@ $("modal").addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!$("modal").hidden) closeDiscard();
-  if (!$("apply-modal").hidden) closeApply();
   if (!$("message-modal").hidden) closeMessage();
   if (!$("posting-modal").hidden) closePosting();
 });
@@ -856,63 +849,6 @@ $("resume-form").addEventListener("submit", async (event) => {
   }
 });
 
-$("company-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    await api("/api/companies", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: $("company-name").value,
-        board_type: $("company-type").value,
-        board_token: $("company-token").value,
-      }),
-    });
-    $("company-form").reset();
-    await refreshSideData();
-    showBanner("Company added. Fetch to pull its jobs.");
-  } catch (error) {
-    showBanner(error.message, true);
-  }
-});
-
-$("add-india").addEventListener("click", () => addWatch("india"));
-$("add-remote").addEventListener("click", () => addWatch("remote"));
-
-async function addWatch(name) {
-  try {
-    const result = await api(`/api/watchlists/${name}`, { method: "POST" });
-    await refreshSideData();
-    const added = result.added || [];
-    showBanner(added.length ? `Added ${added.join(", ")}. Fetch to pull their jobs.` : "Those boards are already on the list.");
-  } catch (error) {
-    showBanner(error.message, true);
-  }
-}
-
-$("apply-close").addEventListener("click", closeApply);
-$("apply-modal").addEventListener("click", (event) => {
-  if (event.target === $("apply-modal")) closeApply();
-});
-$("apply-copy-all").addEventListener("click", async () => {
-  const lines = (state.packet?.fields || []).map((field) => `${field.label}: ${field.value || ""}`);
-  await copyText(lines.join("\n"));
-  showBanner("Copied the application packet.");
-});
-$("apply-bookmarklet").addEventListener("click", async () => {
-  await copyText(AUTOFILL_BOOKMARKLET);
-  showBanner("Bookmarklet copied. Create a bookmark and paste this as its address, then click it on a portal form.");
-});
-$("apply-mark").addEventListener("click", async () => {
-  try {
-    await api(`/api/jobs/${state.packet.job_id}/applied`, { method: "POST" });
-    closeApply();
-    await loadCurrent();
-  } catch (error) {
-    showBanner(error.message, true);
-  }
-});
-
 $("message-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("message-error").hidden = true;
@@ -928,7 +864,13 @@ $("message-sent").addEventListener("click", async () => {
   try {
     const saved = await saveMessage("sent");
     const application = saved.kind === "cover" || saved.kind === "answers";
-    showBanner(application ? "Marked used. Nothing was sent." : (saved.follow_up_on ? `Marked sent. Follow up on ${saved.follow_up_on}.` : "Marked sent."));
+    if (application) {
+      showBanner("Marked used. Nothing was sent.");
+    } else if (saved.follow_up_on) {
+      showBanner(`Marked sent. This job is under Outreach. Follow up on ${saved.follow_up_on}.`);
+    } else {
+      showBanner("Marked sent. This job is under Outreach.");
+    }
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -969,7 +911,7 @@ $("message-followup").addEventListener("click", async () => {
       }),
     });
     openMessage(message);
-    if (state.status === "outreach") await loadOutreach();
+    await loadCurrent();
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -977,27 +919,6 @@ $("message-followup").addEventListener("click", async () => {
 $("message-close").addEventListener("click", closeMessage);
 $("message-modal").addEventListener("click", (event) => {
   if (event.target === $("message-modal")) closeMessage();
-});
-
-$("import-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const file = $("import-file").files[0];
-  if (!file) {
-    showBanner("Choose a CSV or JSON file first.", true);
-    return;
-  }
-  const body = new FormData();
-  body.append("file", file);
-  try {
-    const result = await api("/api/import", { method: "POST", body });
-    showBanner(`Imported ${result.imported}. Added ${result.added}, updated ${result.updated}.`);
-    $("import-form").reset();
-    await refreshSideData();
-    setSettings(false);
-    await loadCurrent();
-  } catch (error) {
-    showBanner(error.message, true);
-  }
 });
 
 function rememberMessages(messages) {
@@ -1020,31 +941,6 @@ async function copyText(text) {
     document.execCommand("copy");
     area.remove();
   }
-}
-
-function closeApply() {
-  $("apply-modal").hidden = true;
-}
-
-async function openApply(jobId) {
-  const packet = await api(`/api/jobs/${jobId}/packet`);
-  state.packet = packet;
-  $("apply-title").textContent = `${packet.title} · ${packet.company}`;
-  $("apply-hint").textContent = packet.ready
-    ? "Copy a field, or use the bookmarklet on the portal page. Submit that form yourself."
-    : "Add your name and email under Settings → Application. Submit the portal form yourself.";
-  const host = $("packet-fields");
-  host.replaceChildren();
-  packet.fields.forEach((field, index) => {
-    host.append(el("div", { class: "packet-row" }, [
-      el("div", {}, [el("span", {}, field.label), el("strong", {}, field.value || "—")]),
-      el("button", { type: "button", class: "btn", "data-action": "copy-field", "data-index": index }, "Copy"),
-    ]));
-  });
-  const url = packet.apply_url || (packet.links[0] && packet.links[0].apply_url) || "";
-  $("apply-open").hidden = !url;
-  $("apply-open").href = url || "#";
-  $("apply-modal").hidden = false;
 }
 
 function closeMessage() {
@@ -1089,71 +985,11 @@ async function saveMessage(status) {
     }),
   });
   openMessage(saved);
-  await refreshOutreachCount();
-  if (state.status === "outreach") await loadOutreach();
+  await loadCurrent();
   return saved;
 }
 
-function renderMessageList(title, messages) {
-  const block = el("section", {}, [el("h2", { class: "group-label" }, title)]);
-  if (!messages.length) {
-    block.append(el("p", { class: "hint" }, "None."));
-    return block;
-  }
-  for (const message of messages) {
-    const who = message.contact_name || message.contact_email || kindLabel(message.kind);
-    const buttons = [
-      el("button", { type: "button", class: "btn", "data-action": "edit-message", "data-message": message.id }, "Open"),
-    ];
-    if (message.status === "sent" && (message.kind === "referral" || message.kind === "follow_up")) {
-      buttons.push(el("button", {
-        type: "button",
-        class: "btn",
-        "data-action": "draft-followup",
-        "data-job": message.job_id,
-        "data-message": message.id,
-        "data-contact": message.contact_id || "",
-      }, "Write follow-up"));
-    }
-    block.append(el("div", { class: "record" }, [
-      el("div", {}, [
-        el("strong", {}, message.subject),
-        el("p", {}, `${message.company} · ${message.job_title} · ${who} · ${message.follow_up_on || message.status}`),
-      ]),
-      el("div", { class: "row" }, buttons),
-    ]));
-  }
-  return block;
-}
-
-async function refreshOutreachCount() {
-  const payload = await api("/api/outreach");
-  state.outreach = payload;
-  rememberMessages([...(payload.due || []), ...(payload.drafts || []), ...(payload.sent || []), ...(payload.closed || [])]);
-  const openCount = payload.counts.due || payload.counts.drafts + payload.counts.sent;
-  $("count-outreach").textContent = `(${openCount})`;
-  return payload;
-}
-
-async function loadOutreach() {
-  const payload = await refreshOutreachCount();
-  const due = payload.counts.due;
-  $("count").textContent = due ? `${due} follow-up${due === 1 ? "" : "s"} due` : `${payload.counts.drafts} drafts · ${payload.counts.sent} sent`;
-  const host = $("jobs");
-  host.replaceChildren(
-    el("p", { class: "hint" }, "Drafts stay here until you open them in mail and mark them sent. Marking a referral sent schedules a follow-up."),
-    renderMessageList("Due", payload.due),
-    renderMessageList("Drafts", payload.drafts),
-    renderMessageList("Sent", payload.sent),
-    renderMessageList("Replied or closed", payload.closed),
-  );
-}
-
 async function loadCurrent() {
-  if (state.status === "outreach") {
-    await loadOutreach();
-    return;
-  }
   await loadJobs();
 }
 
@@ -1168,7 +1004,6 @@ async function init() {
     showWelcome();
     await refreshSideData();
     await loadCurrent();
-    await refreshOutreachCount();
   } catch (error) {
     showBanner(error.message, true);
   }
@@ -1353,27 +1188,6 @@ function closePosting() {
   $("posting-modal").hidden = true;
 }
 
-function renderSuggestions() {
-  const host = $("suggestion-list");
-  host.replaceChildren();
-  for (const item of state.suggestions || []) {
-    host.append(el("div", { class: "record" }, [
-      el("div", {}, [
-        el("strong", {}, item.name),
-        el("p", {}, `${label("source", item.board_type) || item.board_type} · ${item.sample_location} · ${item.reason}`),
-      ]),
-      el("button", {
-        type: "button",
-        class: "btn",
-        "data-action": "add-suggestion",
-        "data-name": item.name,
-        "data-type": item.board_type,
-        "data-token": item.board_token,
-      }, "Add"),
-    ]));
-  }
-}
-
 $("welcome-resume-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const file = $("welcome-resume-file").files[0];
@@ -1495,24 +1309,6 @@ $("posting-form").addEventListener("submit", async (event) => {
   } catch (error) {
     $("posting-error").hidden = false;
     $("posting-error").textContent = error.message;
-  }
-});
-
-$("find-boards").addEventListener("click", async () => {
-  const button = $("find-boards");
-  button.disabled = true;
-  showBanner("Sampling the public registry for Indian and remote boards.");
-  try {
-    const result = await api("/api/suggestions/refresh", { method: "POST" });
-    state.suggestions = result.suggestions || [];
-    renderSuggestions();
-    showBanner(state.suggestions.length
-      ? `Found ${state.suggestions.length} boards. Add one, then Fetch.`
-      : "This sample had no new Indian or remote boards.");
-  } catch (error) {
-    showBanner(error.message, true);
-  } finally {
-    button.disabled = false;
   }
 });
 

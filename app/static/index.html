@@ -89,9 +89,9 @@
         </section>
         <div class="tabs" role="tablist">
           <button type="button" class="tab active" data-status="feed" role="tab">Feed <span id="count-feed">0</span></button>
+          <button type="button" class="tab" data-status="outreach" role="tab">Outreach <span id="count-outreach">0</span></button>
           <button type="button" class="tab" data-status="applied" role="tab">Applied <span id="count-applied">0</span></button>
           <button type="button" class="tab" data-status="discarded" role="tab">Discarded <span id="count-discarded">0</span></button>
-          <button type="button" class="tab" data-status="outreach" role="tab">Outreach <span id="count-outreach">0</span></button>
         </div>
         <div id="jobs" class="jobs"></div>
       </section>
@@ -144,7 +144,7 @@
               <input id="profile-skills" placeholder="Filled in when you upload a resume">
             </label>
             <h2>Application</h2>
-            <p class="hint">These fill the apply packet and the referral drafts. You still submit each portal application yourself.</p>
+            <p class="hint">These fill the referral drafts. You still submit each application on the employer’s site.</p>
             <div class="split">
               <label class="field">Full name
                 <input id="profile-name" autocomplete="name">
@@ -191,38 +191,6 @@
             <button type="submit" class="btn">Upload resume</button>
           </form>
 
-          <h2>Companies</h2>
-          <p class="hint">Indian boards are Greenhouse, Lever, and Ashby pages that answered the public API. Fetch also pulls India and open-remote listings from Jobicy, Remote OK, and Himalayas. Naukri, Instahyre, and LinkedIn do not offer a key for this. Paste a LinkedIn job with Add posting.</p>
-          <div class="row">
-            <button type="button" id="add-india" class="btn">Add Indian boards</button>
-            <button type="button" id="add-remote" class="btn">Add remote company boards</button>
-            <button type="button" id="find-boards" class="btn">Find more boards</button>
-          </div>
-          <p class="hint">Find more boards samples the public Greenhouse, Lever, and Ashby registry for Indian or remote locations. It does not download every job. Add a board, then Fetch.</p>
-          <div id="suggestion-list" class="stack"></div>
-          <form id="company-form" class="stack">
-            <div class="split">
-              <label class="field">Name
-                <input id="company-name" required>
-              </label>
-              <label class="field">Platform
-                <select id="company-type"></select>
-              </label>
-            </div>
-            <label class="field">Board token
-              <input id="company-token" placeholder="discord" required>
-            </label>
-            <button type="submit" class="btn">Add company</button>
-          </form>
-          <div id="company-list" class="stack"></div>
-
-          <h2>Import</h2>
-          <p class="hint">CSV or JSON with title, company, url, location, description, source, and posted_at. See examples/jobs.csv.</p>
-          <form id="import-form" class="row">
-            <input id="import-file" type="file" accept=".csv,.json,text/csv,application/json">
-            <button type="submit" class="btn">Import</button>
-          </form>
-
           <h2>Hide rules</h2>
           <p class="hint">A company rule keeps that employer out of the feed. A phrase rule hides titles that contain it. Applied and discarded jobs stay put.</p>
           <div id="rule-list" class="stack"></div>
@@ -256,22 +224,6 @@
       </form>
     </div>
   </div>
-  <div id="apply-modal" class="modal" hidden>
-    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="apply-title">
-      <h2 id="apply-title">Prepare application</h2>
-      <p id="apply-hint" class="hint"></p>
-      <div id="packet-fields" class="packet"></div>
-      <p class="hint">Greenhouse, Lever, and Ashby only accept a submission from the employer’s own form. Copy the fields, or run the autofill bookmarklet on that page, then press their submit button.</p>
-      <div class="row">
-        <a id="apply-open" class="btn primary" href="#" target="_blank" rel="noopener noreferrer">Open portal</a>
-        <button type="button" id="apply-copy-all" class="btn">Copy all</button>
-        <button type="button" id="apply-bookmarklet" class="btn">Copy autofill bookmarklet</button>
-        <button type="button" id="apply-mark" class="btn">Mark applied</button>
-        <button type="button" id="apply-close" class="btn">Close</button>
-      </div>
-    </div>
-  </div>
-
   <div id="message-modal" class="modal" hidden>
     <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="message-title">
       <h2 id="message-title">Referral draft</h2>
@@ -302,7 +254,7 @@
   <div id="posting-modal" class="modal" hidden>
     <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="posting-title">
       <h2 id="posting-title">Add a posting</h2>
-      <p class="hint">LinkedIn does not offer a feed this board can call. Paste a job you found, or use the bookmarklet on that page. The posting stays here with the same filters, match notes, and drafts.</p>
+      <p class="hint">Paste a job you found, including one from LinkedIn. Fetch does not read LinkedIn, Naukri, Instahyre, or Cutshort.</p>
       <form id="posting-form" class="stack">
         <div class="split">
           <label class="field">Title
