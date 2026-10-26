@@ -510,6 +510,14 @@ def update_message(message_id: int, subject: str, body: str, status: str, follow
                 "UPDATE messages SET follow_up_on = NULL, updated_at = ? WHERE id = ?",
                 (now, row["parent_id"]),
             )
+        if status == "sent" and row["kind"] in {"referral", "follow_up"}:
+            conn.execute(
+                """
+                UPDATE jobs SET status = 'outreach', updated_at = ?
+                WHERE id = ? AND status = 'feed'
+                """,
+                (now, row["job_id"]),
+            )
         saved = conn.execute(_MESSAGE_SQL + " WHERE m.id = ?", (message_id,)).fetchone()
         return _message_payload(saved)
 
@@ -521,7 +529,9 @@ def list_outreach() -> dict:
     with connect() as conn:
         rows = [
             _message_payload(row)
-            for row in conn.execute(_MESSAGE_SQL + " ORDER BY m.follow_up_on IS NULL, m.follow_up_on, m.updated_at DESC").fetchall()
+            for row in conn.execute(
+                _MESSAGE_SQL + " ORDER BY m.follow_up_on IS NULL, m.follow_up_on, m.updated_at DESC"
+            ).fetchall()
         ]
     due = [item for item in rows if item["status"] == "sent" and item["follow_up_on"] and item["follow_up_on"] <= today]
     drafts = [item for item in rows if item["status"] == "draft"]

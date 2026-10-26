@@ -1,5 +1,5 @@
 # Public Greenhouse, Lever, and Ashby boards checked against the live API.
-# Settings → Add Indian boards inserts these. Delete any you do not want.
+# A new database loads these. Delete any you do not want.
 
 [[company]]
 name = "Razorpay"

@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.config import DATA_DIR, DB_PATH, INDIA_WATCHLIST, SAMPLE_WATCHLIST
+from app.config import INDIA_WATCHLIST, SAMPLE_WATCHLIST, database_path
 from app.parse import normalize, utcnow
 
 SCHEMA = """
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     employment TEXT NOT NULL DEFAULT 'unknown',
     work_auth TEXT NOT NULL DEFAULT 'unknown',
     status TEXT NOT NULL DEFAULT 'feed',
+    referred INTEGER NOT NULL DEFAULT 0,
     discard_reason TEXT,
     discard_note TEXT,
     applied_at TEXT,
@@ -213,8 +214,9 @@ def load_sample_watchlist(text: str) -> list[dict[str, str]]:
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    path = database_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -237,8 +239,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for name, ddl in _PROFILE_COLUMNS.items():
         if name not in profile_columns:
             conn.execute(f"ALTER TABLE profile ADD COLUMN {name} {ddl}")
-    if "contacts_scanned" not in _column_names(conn, "jobs"):
+    job_columns = _column_names(conn, "jobs")
+    if "contacts_scanned" not in job_columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN contacts_scanned INTEGER NOT NULL DEFAULT 0")
+    if "referred" not in job_columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN referred INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            """
+            UPDATE jobs SET status = 'outreach'
+            WHERE status = 'feed' AND id IN (
+                SELECT job_id FROM messages
+                WHERE kind IN ('referral', 'follow_up') AND status = 'sent'
+            )
+            """
+        )
 
 
 def init_db() -> None:

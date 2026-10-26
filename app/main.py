@@ -9,27 +9,28 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.ask import ask_job, write_role_comparison
 from app.board import (
     Conflict,
     Filters,
     Missing,
-    add_company,
     delete_company,
     delete_rule,
     discard_job,
+    finish_welcome,
     get_job,
     get_profile,
     list_companies,
     list_jobs,
     list_rules,
-    add_watchlist,
-    finish_welcome,
     mark_applied,
     restore_job,
     save_resume,
     update_company_facts,
     update_profile,
 )
+from app.collect import fetch_boards, import_posting
+from app.config import load_env
 from app.contacts import (
     add_contact,
     apply_packet,
@@ -40,14 +41,9 @@ from app.contacts import (
     list_outreach,
     update_message,
 )
-from app.collect import fetch_boards, import_posting, import_raw_jobs
-from app.config import load_env
 from app.db import connect, init_db
 from app.enrich import enrich_company
-from app.importer import parse_upload
-from app.ask import ask_job, write_role_comparison
 from app.roles import review
-from app.suggest import list_suggestions, refresh_suggestions
 from app.vocab import vocab_payload
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -88,12 +84,6 @@ class ProfileIn(BaseModel):
     avoid_text: str = ""
     yoe_min: int | None = None
     yoe_max: int | None = None
-
-
-class CompanyIn(BaseModel):
-    name: str
-    board_type: str
-    board_token: str
 
 
 class FactsIn(BaseModel):
@@ -211,16 +201,6 @@ async def post_resume(file: UploadFile = File(...)) -> dict:
 @app.get("/api/companies")
 def companies() -> list[dict]:
     return _call(list_companies)
-
-
-@app.post("/api/watchlists/{name}")
-def post_watchlist(name: str) -> dict:
-    return _call(add_watchlist, name)
-
-
-@app.post("/api/companies")
-def post_company(payload: CompanyIn) -> dict:
-    return _call(add_company, payload.name, payload.board_type, payload.board_token)
 
 
 @app.patch("/api/companies/{company_id}")
@@ -370,16 +350,6 @@ def post_ask(job_id: int, payload: AskIn) -> dict:
     return _call(ask_job, job_id, payload.question, payload.evidence)
 
 
-@app.get("/api/suggestions")
-def suggestions() -> list[dict]:
-    return _call(list_suggestions)
-
-
-@app.post("/api/suggestions/refresh")
-def suggestions_refresh() -> dict:
-    return _call(refresh_suggestions)
-
-
 @app.options("/api/import/posting")
 def import_posting_options() -> Response:
     response = Response(status_code=204)
@@ -390,12 +360,26 @@ def import_posting_options() -> Response:
 @app.post("/api/import/posting")
 def post_posting(payload: PostingIn, response: Response) -> dict:
     _cors(response)
-    return _call(import_posting, payload.title, payload.company, payload.location, payload.url, payload.description, payload.source)
+    return _call(
+        import_posting,
+        payload.title,
+        payload.company,
+        payload.location,
+        payload.url,
+        payload.description,
+        payload.source,
+    )
 
 
 @app.post("/api/jobs/{job_id}/applied")
 def applied(job_id: int) -> dict:
     _call(mark_applied, job_id)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{job_id}/referred")
+def referred(job_id: int) -> dict:
+    _call(mark_applied, job_id, True)
     return {"ok": True}
 
 
@@ -417,14 +401,3 @@ def fetch() -> dict:
     result = fetch_boards()
     log.info("fetch %s", {key: result[key] for key in ("added", "updated", "merged", "skipped")})
     return result
-
-
-@app.post("/api/import")
-async def import_file(file: UploadFile = File(...)) -> dict:
-    data = await file.read()
-    try:
-        raw_jobs = parse_upload(file.filename or "jobs.csv", data)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    load_env()
-    return import_raw_jobs(raw_jobs)

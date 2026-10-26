@@ -13,7 +13,7 @@ from app.config import RESUME_PATH
 from app.db import connect, dumps, loads
 from app.market import market_ok
 from app.match import annotate, evidence_sentences, experience_window, years_fit, years_span
-from app.parse import annual_ceiling, format_salary, normalize, phrase_key, utcnow
+from app.parse import annual_ceiling, format_salary, phrase_key, utcnow
 from app.resume import dedupe_skills, detect_skills
 from app.roles import job_matches_role
 from app.vocab import (
@@ -27,7 +27,6 @@ from app.vocab import (
     WORK_MODES,
 )
 
-_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 _BUCKETS = {
     "1-10": (1, 10),
     "11-50": (11, 50),
@@ -222,11 +221,28 @@ def update_profile(payload: dict) -> dict:
             WHERE id = 1
             """,
             (
-                dumps(roles), dumps(locations), work_mode, seniority, salary, currency, dumps(skills), hide,
-                applicant["full_name"], applicant["email"], applicant["phone"], applicant["city"],
-                applicant["linkedin_url"], applicant["github_url"], applicant["portfolio_url"],
-                applicant["notice_period"], applicant["current_title"], applicant["cover_note"],
-                prefer_text, avoid_text, yoe_min, yoe_max,
+                dumps(roles),
+                dumps(locations),
+                work_mode,
+                seniority,
+                salary,
+                currency,
+                dumps(skills),
+                hide,
+                applicant["full_name"],
+                applicant["email"],
+                applicant["phone"],
+                applicant["city"],
+                applicant["linkedin_url"],
+                applicant["github_url"],
+                applicant["portfolio_url"],
+                applicant["notice_period"],
+                applicant["current_title"],
+                applicant["cover_note"],
+                prefer_text,
+                avoid_text,
+                yoe_min,
+                yoe_max,
             ),
         )
         return profile_payload(_profile_row(conn))
@@ -294,50 +310,6 @@ def _company_payload(row: sqlite3.Row) -> dict:
     }
 
 
-def add_company(name: str, board_type: str, board_token: str) -> dict:
-    cleaned = " ".join(name.split())
-    if not cleaned or len(cleaned) > 120:
-        raise ValueError("Enter a company name.")
-    if board_type not in {"greenhouse", "lever", "ashby"}:
-        raise ValueError("Board type should be Greenhouse, Lever, or Ashby.")
-    token = board_token.strip()
-    if not _TOKEN.match(token):
-        raise ValueError("The board token should be the slug from the careers URL.")
-    norm = normalize(cleaned)
-    with connect() as conn:
-        existing = conn.execute("SELECT * FROM companies WHERE normalized_name = ?", (norm,)).fetchone()
-        if existing and existing["board_token"]:
-            raise Conflict(f"{existing['name']} is already on the watchlist.")
-        now = utcnow()
-        if existing:
-            conn.execute(
-                """
-                UPDATE companies SET name = ?, board_type = ?, board_token = ? WHERE id = ?
-                """,
-                (cleaned, board_type, token, existing["id"]),
-            )
-            company_id = existing["id"]
-        else:
-            cur = conn.execute(
-                """
-                INSERT INTO companies (name, normalized_name, board_type, board_token, is_sample, created_at)
-                VALUES (?, ?, ?, ?, 0, ?)
-                """,
-                (cleaned, norm, board_type, token, now),
-            )
-            company_id = int(cur.lastrowid)
-        row = conn.execute(
-            """
-            SELECT c.*, (SELECT COUNT(*) FROM jobs j WHERE j.company_id = c.id) AS job_count
-            FROM companies c WHERE c.id = ?
-            """,
-            (company_id,),
-        ).fetchone()
-        if row is None:
-            raise Missing("Company was not saved.")
-        return _company_payload(row)
-
-
 def delete_company(company_id: int) -> None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM companies WHERE id = ?", (company_id,)).fetchone()
@@ -383,8 +355,7 @@ def list_rules() -> list[dict]:
     with connect() as conn:
         rows = conn.execute("SELECT * FROM rules ORDER BY kind, value").fetchall()
     return [
-        {"id": row["id"], "kind": row["kind"], "value": row["value"], "created_at": row["created_at"]}
-        for row in rows
+        {"id": row["id"], "kind": row["kind"], "value": row["value"], "created_at": row["created_at"]} for row in rows
     ]
 
 
@@ -440,7 +411,7 @@ def discard_job(job_id: int, reason: str, note: str, hide_company: bool, hide_ph
             _add_rule(conn, "phrase", " ".join(hide_phrase.split())[:80], phrase)
 
 
-def mark_applied(job_id: int) -> None:
+def mark_applied(job_id: int, referred: bool = False) -> None:
     with connect() as conn:
         job = conn.execute("SELECT id, status FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if job is None:
@@ -451,11 +422,11 @@ def mark_applied(job_id: int) -> None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'applied', applied_at = ?, discard_reason = NULL, discard_note = NULL,
+            SET status = 'applied', referred = ?, applied_at = ?, discard_reason = NULL, discard_note = NULL,
                 discarded_at = NULL, updated_at = ?
             WHERE id = ?
             """,
-            (now, now, job_id),
+            (1 if referred else 0, now, now, job_id),
         )
 
 
@@ -480,7 +451,7 @@ def restore_job(job_id: int) -> None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = 'feed', discard_reason = NULL, discard_note = NULL,
+            SET status = 'feed', referred = 0, discard_reason = NULL, discard_note = NULL,
                 discarded_at = NULL, applied_at = NULL, updated_at = ?
             WHERE id = ?
             """,
@@ -503,7 +474,10 @@ def _counts(conn: sqlite3.Connection) -> dict:
     )
     return {
         "feed": feed_visible,
+        "outreach": count("SELECT COUNT(*) FROM jobs WHERE status = 'outreach'"),
         "applied": count("SELECT COUNT(*) FROM jobs WHERE status = 'applied'"),
+        "applied_referred": count("SELECT COUNT(*) FROM jobs WHERE status = 'applied' AND referred = 1"),
+        "applied_direct": count("SELECT COUNT(*) FROM jobs WHERE status = 'applied' AND referred = 0"),
         "discarded": count("SELECT COUNT(*) FROM jobs WHERE status = 'discarded'"),
         "hidden": feed_all - feed_visible,
     }
@@ -526,16 +500,14 @@ def _attach_links(conn: sqlite3.Connection, jobs: list[dict]) -> None:
     ids = [job["id"] for job in jobs]
     grouped: dict[int, list[dict]] = {}
     for start in range(0, len(ids), 500):
-        chunk = ids[start:start + 500]
+        chunk = ids[start : start + 500]
         marks = ",".join("?" for _ in chunk)
         rows = conn.execute(
             f"SELECT job_id, source, apply_url FROM job_links WHERE job_id IN ({marks}) ORDER BY id",
             chunk,
         ).fetchall()
         for row in rows:
-            grouped.setdefault(row["job_id"], []).append(
-                {"source": row["source"], "apply_url": row["apply_url"]}
-            )
+            grouped.setdefault(row["job_id"], []).append({"source": row["source"], "apply_url": row["apply_url"]})
     for job in jobs:
         links = [link for link in grouped.get(job["id"], []) if link.get("apply_url")]
         if not links and job.get("apply_url"):
@@ -700,7 +672,9 @@ def _public_job(job: dict, profile: sqlite3.Row) -> dict:
         "apply_url": job.get("apply_url") or "",
         "links": job.get("links") or [],
         "posted_at": (job.get("posted_at") or "")[:10] or None,
-        "salary_label": format_salary(job.get("salary_min"), job.get("salary_max"), job.get("salary_currency"), job.get("salary_interval")),
+        "salary_label": format_salary(
+            job.get("salary_min"), job.get("salary_max"), job.get("salary_currency"), job.get("salary_interval")
+        ),
         "work_mode": job["work_mode"],
         "seniority": job["seniority"],
         "employment": job["employment"],
@@ -708,6 +682,7 @@ def _public_job(job: dict, profile: sqlite3.Row) -> dict:
         "team_size": job.get("team_size"),
         "industry": job.get("industry") or "",
         "status": job["status"],
+        "referred": bool(job.get("referred")),
         "discard_reason": job.get("discard_reason"),
         "discard_note": job.get("discard_note"),
         "applied_at": (job.get("applied_at") or "")[:10] or None,
@@ -747,7 +722,7 @@ def list_jobs(filters: Filters) -> dict:
         raise ValueError("Unknown market.")
     if filters.sort and filters.sort != "match":
         raise ValueError("Unknown sort.")
-    if filters.status not in {"feed", "applied", "discarded"}:
+    if filters.status not in {"feed", "outreach", "applied", "discarded"}:
         raise ValueError("Unknown tab.")
     if filters.source and filters.source not in SOURCES:
         raise ValueError("Unknown platform.")
@@ -773,7 +748,7 @@ def list_jobs(filters: Filters) -> dict:
             f"""
             SELECT j.id, j.company_id, j.source, j.title, j.location, j.apply_url, j.posted_at,
                    j.salary_min, j.salary_max, j.salary_currency, j.salary_interval,
-                   j.work_mode, j.seniority, j.employment, j.work_auth, j.status,
+                   j.work_mode, j.seniority, j.employment, j.work_auth, j.status, j.referred,
                    j.discard_reason, j.discard_note, j.applied_at, j.description_text,
                    c.name AS company, c.team_size, c.industry,
                    (SELECT COUNT(*) FROM contacts ct WHERE ct.job_id = j.id) AS contact_count,
@@ -805,52 +780,13 @@ def list_jobs(filters: Filters) -> dict:
         "total": len(jobs),
         "matched": len(matched),
         "truncated": len(matched) > 500,
-        "counts": {key: counts[key] for key in ("feed", "applied", "discarded")},
+        "counts": {
+            key: counts[key]
+            for key in ("feed", "outreach", "applied", "applied_referred", "applied_direct", "discarded")
+        },
         "hidden": counts["hidden"],
         "jobs": visible,
     }
-
-
-def add_watchlist(name: str) -> dict:
-    from app.config import INDIA_WATCHLIST, REMOTE_WATCHLIST
-    from app.db import load_sample_watchlist
-
-    path = {"india": INDIA_WATCHLIST, "remote": REMOTE_WATCHLIST}.get(name)
-    if path is None or not path.exists():
-        raise ValueError("Unknown company list.")
-    added: list[str] = []
-    skipped: list[str] = []
-    with connect() as conn:
-        for item in load_sample_watchlist(path.read_text(encoding="utf-8")):
-            company_name = " ".join(item["name"].split())
-            token = item["board_token"].strip()
-            board_type = item["board_type"]
-            if board_type not in {"greenhouse", "lever", "ashby"} or not _TOKEN.match(token):
-                skipped.append(company_name)
-                continue
-            existing = conn.execute(
-                "SELECT * FROM companies WHERE normalized_name = ?",
-                (normalize(company_name),),
-            ).fetchone()
-            if existing and existing["board_token"]:
-                skipped.append(company_name)
-                continue
-            now = utcnow()
-            if existing:
-                conn.execute(
-                    "UPDATE companies SET name = ?, board_type = ?, board_token = ? WHERE id = ?",
-                    (company_name, board_type, token, existing["id"]),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO companies (name, normalized_name, board_type, board_token, is_sample, created_at)
-                    VALUES (?, ?, ?, ?, 0, ?)
-                    """,
-                    (company_name, normalize(company_name), board_type, token, now),
-                )
-            added.append(company_name)
-    return {"added": added, "skipped": skipped}
 
 
 def get_job(job_id: int) -> dict:

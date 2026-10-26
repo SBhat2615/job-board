@@ -1,5 +1,5 @@
 # Remote-friendly company boards on the same public APIs.
-# These lists are large. Add them only if you want them in the feed.
+# A new database does not load this file.
 
 [[company]]
 name = "GitLab"
