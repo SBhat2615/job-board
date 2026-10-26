@@ -18,10 +18,12 @@ def _salary(item: dict) -> tuple[int | None, int | None, str | None, str | None]
     high = raw.get("max")
     if low is None and high is None:
         return None, None, None, None
+
     def as_int(value: object) -> int | None:
         if value is None or value == "":
             return None
         return int(round(float(value)))
+
     return as_int(low), as_int(high), (raw.get("currency") or None), (raw.get("interval") or None)
 
 

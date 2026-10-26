@@ -3,7 +3,25 @@ from __future__ import annotations
 import html
 from html.parser import HTMLParser
 
-_ALLOW = {"a", "p", "br", "ul", "ol", "li", "strong", "em", "b", "i", "h1", "h2", "h3", "h4", "blockquote", "code", "pre"}
+_ALLOW = {
+    "a",
+    "p",
+    "br",
+    "ul",
+    "ol",
+    "li",
+    "strong",
+    "em",
+    "b",
+    "i",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "blockquote",
+    "code",
+    "pre",
+}
 _SKIP = {"script", "style", "noscript", "iframe", "object", "embed"}
 _BLOCKS = {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "blockquote", "pre", "tr", "ul", "ol"}
 
@@ -44,9 +62,7 @@ class _Sanitizer(HTMLParser):
                 if key.lower() == "href" and value:
                     href = value.strip()
             if href.startswith("http://") or href.startswith("https://"):
-                self.out.append(
-                    f'<a href="{html.escape(href, quote=True)}" target="_blank" rel="noopener noreferrer">'
-                )
+                self.out.append(f'<a href="{html.escape(href, quote=True)}" target="_blank" rel="noopener noreferrer">')
                 self.stack.append("a")
             return
         self.out.append(f"<{tag}>")

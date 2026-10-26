@@ -8,8 +8,8 @@ import httpx
 from app.config import USER_AGENT
 from app.contacts import scan_unscanned
 from app.db import connect
-from app.feeds import fetch_remote_feeds
 from app.enrich import enrich_company
+from app.feeds import fetch_remote_feeds
 from app.htmlutil import html_to_text, sanitize_html
 from app.parse import (
     coerce_datetime,
@@ -54,7 +54,9 @@ def _salary_fields(raw: RawJob, title: str, text: str) -> tuple[int | None, int 
     return parsed.low, parsed.high, parsed.currency, parsed.interval
 
 
-def _find_existing(conn: sqlite3.Connection, company_id: int, raw: RawJob, ukey: str, dedupe: str) -> tuple[sqlite3.Row | None, str | None]:
+def _find_existing(
+    conn: sqlite3.Connection, company_id: int, raw: RawJob, ukey: str, dedupe: str
+) -> tuple[sqlite3.Row | None, str | None]:
     row = conn.execute(
         "SELECT * FROM jobs WHERE company_id = ? AND source = ? AND external_id = ?",
         (company_id, raw.source, raw.external_id),
@@ -172,9 +174,13 @@ def upsert_job(conn: sqlite3.Connection, company_id: int, company_name: str, raw
             high = existing["salary_max"]
             currency = existing["salary_currency"]
             interval = existing["salary_interval"]
-        work_mode = detect_work_mode(location, use_text, raw.workplace, raw.is_remote) if text else existing["work_mode"]
+        work_mode = (
+            detect_work_mode(location, use_text, raw.workplace, raw.is_remote) if text else existing["work_mode"]
+        )
         seniority = detect_seniority(title)
-        employment = detect_employment(raw.employment, title, use_text) if (raw.employment or text) else existing["employment"]
+        employment = (
+            detect_employment(raw.employment, title, use_text) if (raw.employment or text) else existing["employment"]
+        )
         if employment == "unknown" and existing["employment"] != "unknown" and not raw.employment:
             employment = existing["employment"]
         work_auth = detect_work_auth(use_text) if text else existing["work_auth"]
@@ -296,7 +302,12 @@ def _enrich_missing(companies: list[sqlite3.Row]) -> list[dict[str, str]]:
             with connect() as conn:
                 enrich_company(conn, company["id"])
         except (RuntimeError, httpx.HTTPError) as exc:
-            errors.append({"company": company["name"], "message": _short_error(exc) if not isinstance(exc, RuntimeError) else str(exc)})
+            errors.append(
+                {
+                    "company": company["name"],
+                    "message": _short_error(exc) if not isinstance(exc, RuntimeError) else str(exc),
+                }
+            )
     return errors
 
 
@@ -401,7 +412,9 @@ def import_posting(title: str, company: str, location: str, url: str, descriptio
         raise ValueError("Paste the description. A title alone cannot be matched.")
     if cleaned_url and not cleaned_url.startswith(("http://", "https://")):
         raise ValueError("The posting link should start with https://.")
-    external = hashlib.sha1((cleaned_url or f"{cleaned_company}|{cleaned_title}|{cleaned_location}").encode()).hexdigest()[:16]
+    external = hashlib.sha1(
+        (cleaned_url or f"{cleaned_company}|{cleaned_title}|{cleaned_location}").encode()
+    ).hexdigest()[:16]
     raw = RawJob(
         source=source,
         external_id=external,

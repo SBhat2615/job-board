@@ -258,7 +258,9 @@ def _closed_label(text: str, location: str) -> str | None:
     return None
 
 
-def detect_flags(text: str, location: str, years: int | None, yoe_min: int | None, yoe_max: int | None) -> list[dict[str, str]]:
+def detect_flags(
+    text: str, location: str, years: int | None, yoe_min: int | None, yoe_max: int | None
+) -> list[dict[str, str]]:
     flags: list[dict[str, str]] = []
     closed = _closed_label(text, location)
     if closed:

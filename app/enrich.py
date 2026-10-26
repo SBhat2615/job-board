@@ -180,16 +180,19 @@ def lookup_company(client: httpx.Client, name: str) -> Enrichment:
         return Enrichment(matched=False)
 
     ids = [hit["id"] for hit in candidates if hit.get("id")]
-    entities = _get(
-        client,
-        "https://www.wikidata.org/w/api.php",
-        params={
-            "action": "wbgetentities",
-            "ids": "|".join(ids),
-            "props": "claims|sitelinks",
-            "format": "json",
-        },
-    ).get("entities") or {}
+    entities = (
+        _get(
+            client,
+            "https://www.wikidata.org/w/api.php",
+            params={
+                "action": "wbgetentities",
+                "ids": "|".join(ids),
+                "props": "claims|sitelinks",
+                "format": "json",
+            },
+        ).get("entities")
+        or {}
+    )
 
     p31_ids: list[str] = []
     p452_ids: list[str] = []

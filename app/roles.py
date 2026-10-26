@@ -64,8 +64,6 @@ _DISPLAY = {
     "genai engineer": "GenAI engineer",
     "llm engineer": "LLM engineer",
     "sde (ai)": "SDE (AI)",
-    "generative ai engineer": "Generative AI engineer",
-    "applied ml engineer": "Applied ML engineer",
     "data scientist": "Data scientist",
     "applied scientist": "Applied scientist",
     "machine learning scientist": "Machine learning scientist",
@@ -275,9 +273,7 @@ def review() -> dict:
     from app.match import experience_window
 
     with connect() as conn:
-        profile = conn.execute(
-            "SELECT roles_json, resume_text, yoe_min, yoe_max FROM profile WHERE id = 1"
-        ).fetchone()
+        profile = conn.execute("SELECT roles_json, resume_text, yoe_min, yoe_max FROM profile WHERE id = 1").fetchone()
     if profile is None:
         raise KeyError(1)
     resume = profile["resume_text"] or ""
@@ -307,11 +303,7 @@ def review() -> dict:
 
 
 def _role_card(role: str, rows: list, known: set[str], has_resume: bool) -> dict:
-    matched = [
-        row
-        for row in rows
-        if job_matches_role(role, row["title"] or "", row["description_text"] or "")
-    ]
+    matched = [row for row in rows if job_matches_role(role, row["title"] or "", row["description_text"] or "")]
     counts: dict[str, int] = {}
     for row in matched:
         focus = focus_text(split_sections(row["description_text"] or ""))

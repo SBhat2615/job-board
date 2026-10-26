@@ -4,9 +4,9 @@ from urllib.parse import quote
 
 import httpx
 
+from app.htmlutil import html_to_text, prepare_html
 from app.sources.base import RawJob
 from app.sources.common import check_board, location_name
-from app.htmlutil import html_to_text, prepare_html
 
 
 def fetch(client: httpx.Client, token: str, company_name: str) -> list[RawJob]:

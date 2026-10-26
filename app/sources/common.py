@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 
+
 class BoardError(LookupError):
     pass
 

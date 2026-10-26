@@ -49,7 +49,9 @@ def url_key(url: str | None) -> str:
         return ""
     if parts.scheme not in {"http", "https"} or not parts.netloc:
         return ""
-    query = [(key, val) for key, val in parse_qsl(parts.query, keep_blank_values=True) if not key.lower().startswith("utm_")]
+    query = [
+        (key, val) for key, val in parse_qsl(parts.query, keep_blank_values=True) if not key.lower().startswith("utm_")
+    ]
     path = parts.path.rstrip("/")
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, urlencode(query), ""))
 
@@ -57,7 +59,9 @@ def url_key(url: str | None) -> str:
 def coerce_datetime(value: object) -> str | None:
     if value is None or value == "":
         return None
-    if isinstance(value, (int, float)) or (isinstance(value, str) and re.fullmatch(r"\d+(?:\.\d+)?", str(value).strip())):
+    if isinstance(value, (int, float)) or (
+        isinstance(value, str) and re.fullmatch(r"\d+(?:\.\d+)?", str(value).strip())
+    ):
         number = int(float(str(value).strip()))
         if number > 10_000_000_000:
             number = int(number / 1000)
@@ -81,7 +85,9 @@ def detect_seniority(title: str) -> str:
     text = (title or "").casefold()
     if re.search(r"\b(intern|internship|co-op|coop)\b", text):
         return "intern"
-    if re.search(r"\b(principal|staff|distinguished|fellow|director|vice president|head of)\b", text) or re.search(r"\bvp\b", text):
+    if re.search(r"\b(principal|staff|distinguished|fellow|director|vice president|head of)\b", text) or re.search(
+        r"\bvp\b", text
+    ):
         return "staff"
     if re.search(r"\b(senior|sr\.?)\b", text) or re.search(r"\blead\b", text):
         return "senior"
@@ -153,7 +159,8 @@ def detect_work_mode(location: str, text: str, workplace: str | None, is_remote:
 
 
 _CITIZENSHIP = re.compile(
-    r"\b(citizenship required|must be a (?:us |u\.s\. )?citizen|u\.s\. citizenship|us citizenship|security clearance)\b",
+    r"\b(citizenship required|must be a (?:us |u\.s\. )?citizen|"
+    r"u\.s\. citizenship|us citizenship|security clearance)\b",
     re.I,
 )
 _NO_SPONSOR = re.compile(
@@ -268,11 +275,11 @@ def parse_salary(text: str) -> Salary | None:
         nxt = tokens[index + 1] if index + 1 < len(tokens) else None
         end = current.end()
         use_next = False
-        if nxt and nxt.start() - current.end() <= 16 and _RANGE_GAP.match(text[current.end():nxt.start()]):
+        if nxt and nxt.start() - current.end() <= 16 and _RANGE_GAP.match(text[current.end() : nxt.start()]):
             use_next = True
             end = nxt.end()
-        window_before = text[max(0, current.start() - 80):current.start()]
-        window_after = text[end:end + 40]
+        window_before = text[max(0, current.start() - 80) : current.start()]
+        window_after = text[end : end + 40]
         unit = current.group("unit") or (nxt.group("unit") if use_next and nxt else None)
         has_currency = bool(current.group("cur") or (use_next and nxt and nxt.group("cur")))
         has_marker = bool(current.group("k") or current.group("unit") or "," in current.group("num"))
@@ -298,9 +305,11 @@ def parse_salary(text: str) -> Salary | None:
                 continue
             if high < low:
                 low, high = high, low
-            currency = _currency_of(current.group("cur"), unit) or (
-                _currency_of(nxt.group("cur"), unit) if use_next and nxt else None
-            ) or "USD"
+            currency = (
+                _currency_of(current.group("cur"), unit)
+                or (_currency_of(nxt.group("cur"), unit) if use_next and nxt else None)
+                or "USD"
+            )
             interval = _interval_of(window_after, unit)
             # A bare $80-$85 with no period is too small to treat as pay.
             if interval is None and high < 1000 and not unit:

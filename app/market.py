@@ -81,7 +81,9 @@ def is_open_remote(location: str) -> bool:
         return False
     if any(marker in blob for marker in ("worldwide", "anywhere", "global")):
         return True
-    if "remote" in blob and not any(marker in blob for marker in ("united states", "usa", "u.s.", "united kingdom", "europe", "canada", "latam")):
+    if "remote" in blob and not any(
+        marker in blob for marker in ("united states", "usa", "u.s.", "united kingdom", "europe", "canada", "latam")
+    ):
         return True
     return False
 

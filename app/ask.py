@@ -112,7 +112,9 @@ def ask_job(job_id: int, question: str, evidence: list[str]) -> dict:
         flag_text = ", ".join(flag["label"] for flag in reading["flags"]) or "none"
         yoe = "not listed"
         if row["yoe_min"] is not None or row["yoe_max"] is not None:
-            yoe = f"{row['yoe_min'] if row['yoe_min'] is not None else '?'}–{row['yoe_max'] if row['yoe_max'] is not None else '?'}"
+            low = row["yoe_min"] if row["yoe_min"] is not None else "?"
+            high = row["yoe_max"] if row["yoe_max"] is not None else "?"
+            yoe = f"{low}–{high}"
         quoted = "\n".join(f"- {line}" for line in lines) or "(no resume lines checked)"
         prompt = (
             "Answer one question about this job. Use only the posting excerpt, the flags, "
