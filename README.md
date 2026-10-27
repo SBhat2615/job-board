@@ -1,8 +1,10 @@
 # Job board
 
-A local board for roles you actually want to read. It collects public Greenhouse, Lever, and Ashby career pages and a few remote listings, then files them under Feed, Outreach, Applied, and Discarded.
+A tracker for applications you have already found. Save a role, then keep the posting, the person you asked, and the next follow-up in one place. Public Greenhouse, Lever, and Ashby listings can also land here, under Feed, Outreach, Applied, and Discarded.
 
-It runs on your machine. Nothing here has an account. Jobs, the resume, and drafts stay in `data/`.
+It runs on your machine. Nothing here has an account. Jobs, the resume, and drafts stay in `data/jobs.sqlite`. Schema changes are numbered files in `app/migrations`. Leave `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` unset in `.env` so this copy keeps using that file.
+
+The hosted copy is https://job-board-blue-nine.vercel.app. Opening it asks for the Vercel account. The Turso database behind it starts empty, and your local jobs and resume are not copied there. On that copy, **Fetch**, **Ask about this job**, and role comparison stay off, because there is no sign-in yet.
 
 ## Run
 
@@ -27,7 +29,7 @@ The feed then shows the roles you checked, within one year below and one year ab
 
 A new database loads the Indian boards in `companies.india.toml`. **Fetch** reads those Greenhouse, Lever, and Ashby pages, then adds listings from [Jobicy](https://jobicy.com/api/v2/remote-jobs), [Remote OK](https://remoteok.com/api), and India or open-remote roles from [Himalayas](https://himalayas.app/jobs/api). Open those listings on the original site.
 
-Naukri, Instahyre, Cutshort, and LinkedIn are not fetched. **Add posting** saves a job you paste, including a LinkedIn one. The save bookmarklet can be blocked on an https page, so paste is the path that works.
+Naukri, Instahyre, Cutshort, and LinkedIn are not fetched. Today, **Add posting** saves a job you paste, including a LinkedIn one. A save bookmarklet exists and is often blocked on an https page, so paste is what works. The next way in is a Chrome extension that reads the job page you already have open and sends it to this board at http://127.0.0.1:8765. It does not crawl those sites. Until accounts exist, that extension does not talk to the hosted copy.
 
 Adzuna’s India search is optional. Copy `.env.example` to `.env` and set `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`. When a target role and a city are saved, that search uses the first of each.
 
