@@ -1,0 +1,6 @@
+.venv
+data
+tests
+.github
+**/*.pyc
+__pycache__

@@ -195,3 +195,11 @@ def test_removed_routes_stay_gone_and_paste_remains(client):
         },
     )
     assert pasted.status_code == 400
+
+
+def test_hosted_copy_keeps_fetch_and_model_calls_local(client, monkeypatch):
+    monkeypatch.setattr("app.main.using_hosted_database", lambda: True)
+    assert client.post("/api/fetch").status_code == 403
+    assert client.post("/api/profile/roles/compare").status_code == 403
+    asked = client.post("/api/jobs/1/ask", json={"question": "Is this remote?"})
+    assert asked.status_code == 403

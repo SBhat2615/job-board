@@ -266,8 +266,12 @@ def save_resume(data: bytes, filename: str) -> dict:
         raise ValueError("This PDF has no extractable text. Export a text-based PDF and try again.")
     text = text[:200_000]
     skills = detect_skills(text)
-    RESUME_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RESUME_PATH.write_bytes(data)
+    try:
+        RESUME_PATH.parent.mkdir(parents=True, exist_ok=True)
+        RESUME_PATH.write_bytes(data)
+    except OSError:
+        # The hosted disk is temporary. The extracted text is what the board keeps.
+        pass
     stored_name = " ".join((filename or "resume.pdf").split())[-120:] or "resume.pdf"
     with connect() as conn:
         conn.execute(

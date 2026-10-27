@@ -1,197 +1,123 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
 from app.config import INDIA_WATCHLIST, SAMPLE_WATCHLIST, database_path
+from app.migrate import migrate
 from app.parse import normalize, utcnow
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS companies (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL UNIQUE,
-    board_type TEXT,
-    board_token TEXT,
-    team_size INTEGER,
-    industry TEXT,
-    summary TEXT,
-    signals_json TEXT NOT NULL DEFAULT '[]',
-    source_url TEXT,
-    enriched_at TEXT,
-    user_edited INTEGER NOT NULL DEFAULT 0,
-    is_sample INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS jobs (
-    id INTEGER PRIMARY KEY,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    source TEXT NOT NULL,
-    external_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    title_folded TEXT NOT NULL,
-    normalized_title TEXT NOT NULL,
-    location TEXT,
-    normalized_location TEXT NOT NULL DEFAULT '',
-    description_html TEXT NOT NULL DEFAULT '',
-    description_text TEXT NOT NULL DEFAULT '',
-    apply_url TEXT,
-    url_key TEXT NOT NULL DEFAULT '',
-    dedupe_key TEXT NOT NULL,
-    posted_at TEXT,
-    salary_min INTEGER,
-    salary_max INTEGER,
-    salary_currency TEXT,
-    salary_interval TEXT,
-    work_mode TEXT NOT NULL DEFAULT 'unknown',
-    seniority TEXT NOT NULL DEFAULT 'unknown',
-    employment TEXT NOT NULL DEFAULT 'unknown',
-    work_auth TEXT NOT NULL DEFAULT 'unknown',
-    status TEXT NOT NULL DEFAULT 'feed',
-    referred INTEGER NOT NULL DEFAULT 0,
-    discard_reason TEXT,
-    discard_note TEXT,
-    applied_at TEXT,
-    discarded_at TEXT,
-    contacts_scanned INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    UNIQUE(company_id, source, external_id)
-);
+class _Row(tuple):
+    """A result row that can be read by column name. libsql returns plain tuples."""
 
-CREATE TABLE IF NOT EXISTS job_links (
-    id INTEGER PRIMARY KEY,
-    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    source TEXT NOT NULL,
-    external_id TEXT,
-    apply_url TEXT,
-    url_key TEXT NOT NULL DEFAULT '',
-    UNIQUE(job_id, source, url_key)
-);
+    def __new__(cls, columns: list[str], values: tuple):
+        row = super().__new__(cls, values)
+        row._map = dict(zip(columns, values))  # type: ignore[attr-defined]
+        return row
 
-CREATE TABLE IF NOT EXISTS profile (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    roles_json TEXT NOT NULL DEFAULT '[]',
-    locations_json TEXT NOT NULL DEFAULT '[]',
-    work_mode TEXT NOT NULL DEFAULT 'any',
-    seniority TEXT NOT NULL DEFAULT 'any',
-    salary_min INTEGER,
-    salary_currency TEXT NOT NULL DEFAULT 'USD',
-    skills_json TEXT NOT NULL DEFAULT '[]',
-    resume_text TEXT,
-    resume_filename TEXT,
-    hide_unknown_salary INTEGER NOT NULL DEFAULT 0,
-    full_name TEXT NOT NULL DEFAULT '',
-    email TEXT NOT NULL DEFAULT '',
-    phone TEXT NOT NULL DEFAULT '',
-    city TEXT NOT NULL DEFAULT '',
-    linkedin_url TEXT NOT NULL DEFAULT '',
-    github_url TEXT NOT NULL DEFAULT '',
-    portfolio_url TEXT NOT NULL DEFAULT '',
-    notice_period TEXT NOT NULL DEFAULT '',
-    current_title TEXT NOT NULL DEFAULT '',
-    cover_note TEXT NOT NULL DEFAULT '',
-    prefer_text TEXT NOT NULL DEFAULT '',
-    avoid_text TEXT NOT NULL DEFAULT '',
-    yoe_min INTEGER,
-    yoe_max INTEGER,
-    welcome_done INTEGER NOT NULL DEFAULT 0
-);
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._map[key]  # type: ignore[attr-defined]
+        return tuple.__getitem__(self, key)
 
-CREATE TABLE IF NOT EXISTS rules (
-    id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL,
-    value TEXT NOT NULL,
-    normalized_value TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(kind, normalized_value)
-);
+    def keys(self) -> list[str]:
+        return list(self._map)  # type: ignore[attr-defined]
 
-CREATE TABLE IF NOT EXISTS contacts (
-    id INTEGER PRIMARY KEY,
-    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
-    name TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT '',
-    email TEXT NOT NULL DEFAULT '',
-    link TEXT NOT NULL DEFAULT '',
-    source TEXT NOT NULL DEFAULT 'user',
-    created_at TEXT NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY,
-    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
-    parent_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
-    kind TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft',
-    subject TEXT NOT NULL DEFAULT '',
-    body TEXT NOT NULL DEFAULT '',
-    follow_up_on TEXT,
-    sent_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
+class _NamedCursor:
+    def __init__(self, cursor) -> None:
+        self._cursor = cursor
+        self.lastrowid = cursor.lastrowid
+        self.rowcount = cursor.rowcount
+        description = cursor.description or ()
+        self._columns = [item[0] for item in description]
 
-CREATE TABLE IF NOT EXISTS job_answers (
-    id INTEGER PRIMARY KEY,
-    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    question TEXT NOT NULL,
-    evidence_json TEXT NOT NULL,
-    answer TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+    def _row(self, values):
+        if values is None:
+            return None
+        return _Row(self._columns, tuple(values))
 
-CREATE TABLE IF NOT EXISTS role_comparisons (
-    cache_key TEXT PRIMARY KEY,
-    answer TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+    def fetchone(self):
+        return self._row(self._cursor.fetchone())
 
-CREATE TABLE IF NOT EXISTS board_suggestions (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    board_type TEXT NOT NULL,
-    board_token TEXT NOT NULL,
-    sample_location TEXT NOT NULL DEFAULT '',
-    reason TEXT NOT NULL DEFAULT '',
-    fetched_at TEXT NOT NULL,
-    UNIQUE(board_type, board_token)
-);
+    def fetchall(self):
+        return [self._row(values) for values in self._cursor.fetchall()]
 
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_dedupe ON jobs(dedupe_key);
-CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs(posted_at);
-CREATE INDEX IF NOT EXISTS idx_contacts_job ON contacts(job_id);
-CREATE INDEX IF NOT EXISTS idx_messages_job ON messages(job_id);
-CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status, follow_up_on);
-CREATE INDEX IF NOT EXISTS idx_job_answers_job ON job_answers(job_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_job_email ON contacts(job_id, email) WHERE email != '';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_job_link ON contacts(job_id, link) WHERE link != '';
-"""
+    def __iter__(self):
+        try:
+            rows = iter(self._cursor)
+        except TypeError:
+            rows = self._cursor.fetchall()
+        for values in rows:
+            yield self._row(values)
 
-_PROFILE_COLUMNS = {
-    "full_name": "TEXT NOT NULL DEFAULT ''",
-    "email": "TEXT NOT NULL DEFAULT ''",
-    "phone": "TEXT NOT NULL DEFAULT ''",
-    "city": "TEXT NOT NULL DEFAULT ''",
-    "linkedin_url": "TEXT NOT NULL DEFAULT ''",
-    "github_url": "TEXT NOT NULL DEFAULT ''",
-    "portfolio_url": "TEXT NOT NULL DEFAULT ''",
-    "notice_period": "TEXT NOT NULL DEFAULT ''",
-    "current_title": "TEXT NOT NULL DEFAULT ''",
-    "cover_note": "TEXT NOT NULL DEFAULT ''",
-    "prefer_text": "TEXT NOT NULL DEFAULT ''",
-    "avoid_text": "TEXT NOT NULL DEFAULT ''",
-    "yoe_min": "INTEGER",
-    "yoe_max": "INTEGER",
-    "welcome_done": "INTEGER NOT NULL DEFAULT 0",
-}
+
+class _NamedConnection:
+    def __init__(self, raw) -> None:
+        self._raw = raw
+
+    def execute(self, sql: str, parameters: object = ()):
+        return _NamedCursor(self._raw.execute(sql, parameters))
+
+    def executescript(self, script: str) -> None:
+        self._raw.executescript(script)
+
+    def commit(self) -> None:
+        self._raw.commit()
+
+    def rollback(self) -> None:
+        self._raw.rollback()
+
+    def close(self) -> None:
+        self._raw.close()
+
+
+def _turso_settings() -> tuple[str, str] | None:
+    url = os.environ.get("TURSO_DATABASE_URL", "").strip()
+    token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+    if not url and not token:
+        return None
+    if not url or not token:
+        raise RuntimeError("Set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, or neither.")
+    return url, token
+
+
+def using_hosted_database() -> bool:
+    """True when this process is the hosted board, not a local file."""
+    if os.environ.get("JOB_BOARD_DB"):
+        return False
+    return _turso_settings() is not None
+
+
+def _open_local() -> sqlite3.Connection:
+    path = database_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
+def _open_turso(url: str, token: str) -> _NamedConnection:
+    import libsql
+
+    raw = libsql.connect(url, auth_token=token)
+    raw.execute("PRAGMA foreign_keys = ON")
+    return _NamedConnection(raw)
+
+
+def _open():
+    if os.environ.get("JOB_BOARD_DB"):
+        return _open_local()
+    remote = _turso_settings()
+    if remote is not None:
+        return _open_turso(*remote)
+    return _open_local()
 
 
 def load_sample_watchlist(text: str) -> list[dict[str, str]]:
@@ -214,12 +140,7 @@ def load_sample_watchlist(text: str) -> list[dict[str, str]]:
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    path = database_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn = _open()
     try:
         yield conn
         conn.commit()
@@ -230,35 +151,9 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    profile_columns = _column_names(conn, "profile")
-    for name, ddl in _PROFILE_COLUMNS.items():
-        if name not in profile_columns:
-            conn.execute(f"ALTER TABLE profile ADD COLUMN {name} {ddl}")
-    job_columns = _column_names(conn, "jobs")
-    if "contacts_scanned" not in job_columns:
-        conn.execute("ALTER TABLE jobs ADD COLUMN contacts_scanned INTEGER NOT NULL DEFAULT 0")
-    if "referred" not in job_columns:
-        conn.execute("ALTER TABLE jobs ADD COLUMN referred INTEGER NOT NULL DEFAULT 0")
-        conn.execute(
-            """
-            UPDATE jobs SET status = 'outreach'
-            WHERE status = 'feed' AND id IN (
-                SELECT job_id FROM messages
-                WHERE kind IN ('referral', 'follow_up') AND status = 'sent'
-            )
-            """
-        )
-
-
 def init_db() -> None:
     with connect() as conn:
-        conn.executescript(SCHEMA)
-        _migrate(conn)
+        migrate(conn)
         existing = conn.execute("SELECT COUNT(*) AS n FROM companies").fetchone()["n"]
         watchlist = INDIA_WATCHLIST if INDIA_WATCHLIST.exists() else SAMPLE_WATCHLIST
         if existing == 0 and watchlist.exists():

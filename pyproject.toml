@@ -1,3 +1,19 @@
+[project]
+name = "job-board"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.115.12",
+    "uvicorn==0.34.2",
+    "httpx==0.28.1",
+    "libsql==0.1.11",
+    "pypdf==5.4.0",
+    "python-multipart==0.0.20",
+]
+
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

@@ -3,4 +3,7 @@ __pycache__/
 *.pyc
 data/
 .env
+.env.local
+.env*.local
 .DS_Store
+.vercel/

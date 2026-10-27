@@ -41,7 +41,7 @@ from app.contacts import (
     list_outreach,
     update_message,
 )
-from app.db import connect, init_db
+from app.db import connect, init_db, using_hosted_database
 from app.enrich import enrich_company
 from app.roles import review
 from app.vocab import vocab_payload
@@ -59,6 +59,20 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Job board", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+def _local_only(action: str) -> None:
+    if using_hosted_database():
+        raise HTTPException(403, f"{action} stays on the local board.")
 
 
 class ProfileIn(BaseModel):
@@ -335,6 +349,7 @@ def profile_roles() -> dict:
 
 @app.post("/api/profile/roles/compare")
 def profile_roles_compare() -> dict:
+    _local_only("Role comparison")
     load_env()
     return _call(write_role_comparison)
 
@@ -346,6 +361,7 @@ def post_drafts(job_id: int, payload: DraftIn) -> dict:
 
 @app.post("/api/jobs/{job_id}/ask")
 def post_ask(job_id: int, payload: AskIn) -> dict:
+    _local_only("Ask about this job")
     load_env()
     return _call(ask_job, job_id, payload.question, payload.evidence)
 
@@ -397,6 +413,7 @@ def restore(job_id: int) -> dict:
 
 @app.post("/api/fetch")
 def fetch() -> dict:
+    _local_only("Fetch")
     load_env()
     result = fetch_boards()
     log.info("fetch %s", {key: result[key] for key in ("added", "updated", "merged", "skipped")})
