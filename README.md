@@ -18,6 +18,20 @@ Save the role, the person you asked, and the date you mean to follow up. The pos
 
 The live app is the hosted copy. Opening it asks for the Vercel account that owns the project. Your jobs and resume stay on your machine, in `data/jobs.sqlite`, and are not copied there.
 
+> **Development is halted for now.** The search and the tracker are already covered by [JobWizard](https://jobwizard.ai/), [Simplify](https://simplify.jobs/), [Dossier](https://github.com/AienTech/dossier), and [ai-job-search](https://github.com/ai-job-search-dev/ai-job-search). This repository stays up so the local board can still be run.
+
+## Contents
+
+- [The pipeline](#the-pipeline)
+- [What you can do](#what-you-can-do)
+- [Run it locally](#run-it-locally)
+- [Configuration](#configuration)
+- [Built with](#built-with)
+- [Checks](#checks)
+- [Contributing](#contributing)
+- [Security](#security)
+- [Status](#status)
+
 ---
 
 ## The pipeline
@@ -73,9 +87,12 @@ Copy `.env.example` to `.env`. Every key is optional.
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | A hosted database, only when both are set. |
 | `JOB_BOARD_DB` | Forces a local SQLite file. The tests set this so they never touch Turso. |
 
-## Stack
+## Built with
 
-FastAPI and Uvicorn serve the API and the pages in `app/static`. SQLite holds the data, with numbered migrations in `app/migrations`. The hosted database is Turso, through `libsql`. GitHub Actions runs Ruff and pytest on every push.
+- [FastAPI](https://fastapi.tiangolo.com/) and Uvicorn, serving the API and the pages in `app/static`
+- SQLite, with numbered migrations in `app/migrations`
+- [Turso](https://turso.tech/) through `libsql`, when the hosted database is configured
+- [Ruff](https://docs.astral.sh/ruff/) and pytest, run on every push by GitHub Actions
 
 ## Checks
 
@@ -88,6 +105,18 @@ FastAPI and Uvicorn serve the API and the pages in `app/static`. SQLite holds th
 
 CI installs `requirements.lock`.
 
+## Contributing
+
+Setup, formatting, and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+No license is set. Until one is added, do not treat this repository as free to copy.
+
+## Security
+
+The local database can hold a resume and drafts. How to report a problem without posting that data is in [SECURITY.md](SECURITY.md).
+
 ## Status
 
-The tracker works on this machine. Accounts, a Chrome extension that saves the open job page, and a public sign-in are still ahead. The working list is [ROADMAP.md](ROADMAP.md).
+Development is halted for now. [JobWizard](https://jobwizard.ai/), [Simplify](https://simplify.jobs/), [Dossier](https://github.com/AienTech/dossier), and [ai-job-search](https://github.com/ai-job-search-dev/ai-job-search) already cover this.
+
+The tracker on this machine still runs. Accounts, a Chrome extension that saves the open job page, and a public sign-in stay written in [ROADMAP.md](ROADMAP.md) until work resumes.

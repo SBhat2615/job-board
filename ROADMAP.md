@@ -1,12 +1,14 @@
 # Roadmap
 
+Development is halted for now. The search and the tracker are already covered by [JobWizard](https://jobwizard.ai/), [Simplify](https://simplify.jobs/), [Dossier](https://github.com/AienTech/dossier), and [ai-job-search](https://github.com/ai-job-search-dev/ai-job-search). This sheet stays as the plan if work resumes.
+
 A tracker for applications you have already found. You save a role from the page you are on, then keep the posting, the person you asked, and the next follow-up in one place. LinkedIn, Naukri, Instahyre, and company sites stay where you discover roles. This app does not become another one of those.
 
 A feed of public career pages is a side door. It can put a matching role on the board. It is not the point of the product.
 
 No account yet. Jobs, the resume, and drafts stay in the local database. The **Revamp** below adds accounts and a hosted copy. It does not block the tracker on this machine.
 
-This sheet is the working list. The sections above the Revamp are the current state. The next step is the first open box under **TODO**.
+This sheet is the saved plan. The sections above the Revamp are the current state. If work resumes, the next step is the first open box under **TODO**.
 
 ## Already in the repo
 
