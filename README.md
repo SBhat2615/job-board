@@ -1,53 +1,81 @@
+<div align="center">
+
 # Job board
 
-A tracker for applications you have already found. Save a role, then keep the posting, the person you asked, and the next follow-up in one place. Public Greenhouse, Lever, and Ashby listings can also land here, under Feed, Outreach, Applied, and Discarded.
+A tracker for an application you have already found.
 
-It runs on your machine. Nothing here has an account. Jobs, the resume, and drafts stay in `data/jobs.sqlite`. Schema changes are numbered files in `app/migrations`. Leave `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` unset in `.env` so this copy keeps using that file.
+Save the role, the person you asked, and the date you mean to follow up. The posting stays with that record.
 
-The hosted copy is https://job-board-blue-nine.vercel.app. Opening it asks for the Vercel account. The Turso database behind it starts empty, and your local jobs and resume are not copied there. On that copy, **Fetch**, **Ask about this job**, and role comparison stay off, because there is no sign-in yet.
+[**Open the live app**](https://job-board-blue-nine.vercel.app)
 
-## Run
+[![Live app](https://img.shields.io/badge/live-job--board-0f766e?style=flat-square)](https://job-board-blue-nine.vercel.app)
+[![CI](https://github.com/SBhat2615/job-board/actions/workflows/ci.yml/badge.svg)](https://github.com/SBhat2615/job-board/actions/workflows/ci.yml)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue?style=flat-square)](https://www.python.org/downloads/release/python-3100/)
+
+[Roadmap](ROADMAP.md) · [Feature notes](http://127.0.0.1:8765/docs)
+
+</div>
+
+The live app is the hosted copy. Opening it asks for the Vercel account that owns the project. Your jobs and resume stay on your machine, in `data/jobs.sqlite`, and are not copied there.
+
+---
+
+## The pipeline
+
+```text
+Feed  →  Outreach  →  Applied
+                ↘
+                  Discarded
+```
+
+| Stage | What it means |
+| --- | --- |
+| **Feed** | A role you are still reading. |
+| **Outreach** | You marked a referral or follow-up as sent. A follow-up is dated five days later. |
+| **Applied** | Split into **with a referral** and **without one**. |
+| **Discarded** | A role you set aside, with a reason. Restore puts it back. |
+
+Opening a mail draft does not mark it sent. **Mark sent** does.
+
+## What you can do
+
+- **Add posting** saves a job you paste, including one from LinkedIn. The board does not crawl LinkedIn, Naukri, Instahyre, or Cutshort.
+- **Description** shows the posting and the company facts you can edit.
+- **Referral** lists people saved on that job and lets you add another. The draft opens in your mail app.
+- **Got referred** files the job under Applied, with the referral. **Mark applied** files one you submitted yourself.
+- **Apply External** opens the employer’s page. You submit the application there.
+- **Fetch** reads public Greenhouse, Lever, and Ashby boards, plus [Jobicy](https://jobicy.com/api/v2/remote-jobs), [Remote OK](https://remoteok.com/api), and India or open-remote roles from [Himalayas](https://himalayas.app/jobs/api). The same role on two boards becomes one card with both apply links.
+- A resume PDF on the first visit suggests roles and a years window. The feed keeps roles you checked, one year below and one year above that range. A card does not show a match score.
+
+## Run it locally
+
+Requires Python 3.10.
 
 ```bash
-cd ~/Desktop/PROJECTS/job-board
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m app
 ```
 
-Open http://127.0.0.1:8765
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Notes on each feature are at [/docs](http://127.0.0.1:8765/docs).
 
-Feature notes are at http://127.0.0.1:8765/docs
+A new database loads the Indian boards in `companies.india.toml`. Leave `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` unset so this copy keeps using `data/jobs.sqlite`.
 
-## First visit
+## Configuration
 
-The first screen asks for a text-based resume PDF. You can replace it later with **Re-upload resume**. The next screen reads the latest role, offers similar roles to check, accepts a typed role, and asks for years of experience.
+Copy `.env.example` to `.env`. Every key is optional.
 
-The feed then shows the roles you checked, within one year below and one year above that range. A posting whose range overlaps stays. A posting with no years stated stays. A posting whose minimum sits above the window is left out. Search looks through every collected job.
+| Variable | Used for |
+| --- | --- |
+| `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | An India search, using the first saved role and city. |
+| `TAVILY_API_KEY` | A few sourced snippets on a company. Facts still come from Wikidata and Wikipedia without it. |
+| `OPENAI_API_KEY` | **Ask about this job**, and the role comparison. Point `OPENAI_BASE_URL` at a local server if you want one. |
+| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | A hosted database, only when both are set. |
+| `JOB_BOARD_DB` | Forces a local SQLite file. The tests set this so they never touch Turso. |
 
-## Where the jobs come from
+## Stack
 
-A new database loads the Indian boards in `companies.india.toml`. **Fetch** reads those Greenhouse, Lever, and Ashby pages, then adds listings from [Jobicy](https://jobicy.com/api/v2/remote-jobs), [Remote OK](https://remoteok.com/api), and India or open-remote roles from [Himalayas](https://himalayas.app/jobs/api). Open those listings on the original site.
-
-Naukri, Instahyre, Cutshort, and LinkedIn are not fetched. Today, **Add posting** saves a job you paste, including a LinkedIn one. A save bookmarklet exists and is often blocked on an https page, so paste is what works. The next way in is a Chrome extension that reads the job page you already have open and sends it to this board at http://127.0.0.1:8765. It does not crawl those sites. Until accounts exist, that extension does not talk to the hosted copy.
-
-Adzuna’s India search is optional. Copy `.env.example` to `.env` and set `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`. When a target role and a city are saved, that search uses the first of each.
-
-The same role on two boards becomes one card with both apply links. A later fetch updates the text and keeps Applied or Discarded.
-
-## On the board
-
-Filters sit across the top. The market menu starts on **India & remote**. **Newest** is the default sort. **Best match** ranks by preferred phrases and resume overlap. A card does not show a number.
-
-**Discard** stores a reason. “Company is wrong for me” can hide that company. A title phrase is hidden only when one is typed. **Restore** puts the job back and removes that company hide rule.
-
-**Apply External** opens the employer’s posting. The application is filled and submitted on that page. **Description** shows the posting and the company facts you can edit. **Referral** lists people already saved for that job and lets you add another.
-
-**Draft referral** opens in your mail app. Opening mail does not mark it sent. **Mark sent** does, moves the job to Outreach, and schedules a follow-up five days later. **Got referred** files it under Applied, with the referral. **Mark applied** files a job you submitted yourself, without one.
-
-**Draft from checked lines** quotes resume sentences that share a skill with the requirements. Marking a cover note or form answer used does not send it. **Ask about this job** runs when `OPENAI_API_KEY` is set. It can point at a local OpenAI-compatible server through `OPENAI_BASE_URL`.
-
-Company facts come from Wikidata and Wikipedia when the public record matches the name. Optional `TAVILY_API_KEY` adds sourced snippets. There is no ethics score. Prefer and avoid phrases warn or change Best match rank. They do not hide a job.
+FastAPI and Uvicorn serve the API and the pages in `app/static`. SQLite holds the data, with numbered migrations in `app/migrations`. The hosted database is Turso, through `libsql`. GitHub Actions runs Ruff and pytest on every push.
 
 ## Checks
 
@@ -58,8 +86,8 @@ Company facts come from Wikidata and Wikipedia when the public record matches th
 .venv/bin/pytest
 ```
 
-`requirements.lock` is what the GitHub check installs.
+CI installs `requirements.lock`.
 
-## Later
+## Status
 
-What is already in the repo, and what is still open, is in [ROADMAP.md](ROADMAP.md).
+The tracker works on this machine. Accounts, a Chrome extension that saves the open job page, and a public sign-in are still ahead. The working list is [ROADMAP.md](ROADMAP.md).
